@@ -1,0 +1,19 @@
+{
+  "name": "@aionis/runtime-evals",
+  "version": "0.0.0-private",
+  "private": true,
+  "type": "module",
+  "description": "Git-authoritative bounded soak harness for Aionis Runtime releases",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:contracts": "node --test test/contracts.test.mjs test/workflow-contract.test.mjs",
+    "validate:fixture": "node src/run-bounded-soak.mjs validate --lock config/v0.3.12-release-lock.json --authority fixtures/v0.3.12/authority-manifest.json --workload fixtures/v0.3.12/workload-manifest.json",
+    "run:pilot": "node src/run-bounded-soak.mjs pilot --lock config/v0.3.12-release-lock.json --authority fixtures/v0.3.12/authority-manifest.json --workload fixtures/v0.3.12/workload-manifest.json --execute",
+    "run:soak": "node src/run-bounded-soak.mjs soak --lock config/v0.3.12-release-lock.json --authority fixtures/v0.3.12/authority-manifest.json --workload fixtures/v0.3.12/workload-manifest.json --execute",
+    "artifact:manifest": "node src/build-artifact-manifest.mjs",
+    "verify:stable": "node scripts/verify-stable-promotion.mjs"
+  }
+}

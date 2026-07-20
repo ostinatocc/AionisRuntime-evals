@@ -1,0 +1,159 @@
+{
+  "schema_version": "aionis_soak_release_lock_v1",
+  "candidate": {
+    "repository": "https://github.com/ostinatocc/Aionis",
+    "version": "0.3.12",
+    "tag": "v0.3.12",
+    "commit": "6f3557014117af85c19f1589a48173e87bd84b70",
+    "image": "ghcr.io/ostinatocc/aionis",
+    "digest": "sha256:f40c5a1f14af23674fab5e59414bbe4187a0d56dcf8a2798afd02c1563c4a5d6",
+    "platform": "linux/amd64",
+    "oci_revision": "6f3557014117af85c19f1589a48173e87bd84b70",
+    "oci_version": "v0.3.12"
+  },
+  "candidate_publication_receipt": {
+    "path": "docs/releases/v0.3.12-publication-evidence.json",
+    "sha256": "c72cf4e380b7ac66c6ac7f0a11982c9c5246672b0f345da398ef9a2aeec2b411"
+  },
+  "providers": {
+    "embedding": {
+      "provider": "dashscope",
+      "model": "qwen3.7-text-embedding",
+      "persisted_model": "dashscope:qwen3.7-text-embedding",
+      "dimensions": 1536
+    },
+    "agent": {
+      "provider": "openrouter",
+      "requested_model": "deepseek/deepseek-v4-pro",
+      "allowed_returned_models": [
+        "deepseek/deepseek-v4-pro"
+      ],
+      "fallback_allowed": false
+    }
+  },
+  "generation": {
+    "temperature": 0,
+    "top_p": 1,
+    "max_output_tokens": 4096,
+    "request_timeout_ms": 120000
+  },
+  "retry_policy": {
+    "transport_max_attempts": 3,
+    "retryable_http_statuses": [
+      429,
+      500,
+      502,
+      503,
+      504
+    ],
+    "retryable_network_codes": [
+      "ECONNRESET",
+      "ETIMEDOUT"
+    ],
+    "semantic_retries": 0
+  },
+  "execution_limits": {
+    "minimum_duration_seconds": 86400,
+    "maximum_duration_seconds": 129600,
+    "maximum_chat_calls": 90,
+    "maximum_cost_usd": 50,
+    "pilot_chat_calls": 9,
+    "soak_chat_calls": 81,
+    "soak_waves": 3,
+    "persistent_volume_required": true
+  },
+  "protocol": {
+    "groups": [
+      "baseline",
+      "long_context",
+      "aionis"
+    ],
+    "scenarios": [
+      "branch_recovery",
+      "negative_transfer",
+      "summary_only_inspect"
+    ],
+    "product_invariants": [
+      "golden_product_loop",
+      "product_loop",
+      "ordinary_memory_loop",
+      "single_agent_loop",
+      "multi_agent_loop"
+    ],
+    "pilot": {
+      "semantic_chat_calls": 9,
+      "aionis_trials": 3
+    },
+    "soak": {
+      "semantic_chat_calls": 81,
+      "waves": 3,
+      "semantic_chat_calls_per_wave": 27,
+      "aionis_trials_per_wave": 9,
+      "total_aionis_trials": 27,
+      "negative_transfer_trials": 9
+    }
+  },
+  "protocol_artifacts": {
+    "authority_manifest": {
+      "source_path": "fixtures/v0.3.12/authority-manifest.json",
+      "sha256": "5d406938f9661eddf7472c409b7ddfc250349fc3ce27b69f831d27252a5e4202"
+    },
+    "workload_manifest": {
+      "source_path": "fixtures/v0.3.12/workload-manifest.json",
+      "sha256": "5c0bb09291ed07e7df6c123f87c282352a685d496c86a9754f8de6ffe05d47c0"
+    }
+  },
+  "artifact_contract": {
+    "release_repository": "https://github.com/ostinatocc/AionisRuntime-evals",
+    "required_kinds": [
+      "api_receipts",
+      "flight_recorder",
+      "offline_sqlite_verify",
+      "operator_snapshots",
+      "raw_agent_streams",
+      "worker_state"
+    ]
+  },
+  "stable_governance_artifacts": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "a4bcbddfc3e104ad00c5a0a6399c38517f48b3cb65bd80193f48889a6e1c1af7"
+    },
+    {
+      "path": ".github/workflows/docker.yml",
+      "sha256": "1a32746e4167ba180c1b53b5933dc98c6a52e028584283cf32a49d1bfcd3b90d"
+    },
+    {
+      "path": "scripts/ci/docker-recovery-smoke.sh",
+      "sha256": "ce22a0f301783663858a571a84fb879e0b804d7a06d78066bedd47409a2db9a6"
+    },
+    {
+      "path": "scripts/ci/release-package-artifacts.sh",
+      "sha256": "fa2c7d7659e1f3f2e910c237e47727f67b5e62479ebb51965239e856d7460ae4"
+    },
+    {
+      "path": "scripts/ci/release-artifact-gate.mjs",
+      "sha256": "f3cb11f9213fea75e31f46bb4c60d61f3785a019027f9e2c2d6b37514e069718"
+    },
+    {
+      "path": "scripts/ci/release-artifact-gate.test.mjs",
+      "sha256": "7699f4d857f5dc5e0410251924e94eb77d27dd91f6a07bd57bf46ff3259530b1"
+    },
+    {
+      "path": "scripts/ci/release-version-docs.test.mjs",
+      "sha256": "8a2206ff8ab51a03b726daf17fc33230bd4ce0cae1a48faf3139eb85e004e8b5"
+    },
+    {
+      "path": "scripts/ci/release-workflow-contract.test.mjs",
+      "sha256": "6ca99f7243bdea7edc9a648f0eaac95f157e6de57edbdde26e2311337eb3d699"
+    },
+    {
+      "path": "scripts/ci/runtime-complexity-budget.test.mjs",
+      "sha256": "b442f33ad234bdee7db6607e993e392e3ad79216542ece639d4d35097a3abb89"
+    },
+    {
+      "path": "scripts/ci/sdk-contract-ownership.test.mjs",
+      "sha256": "cf46c8f881d86cc0d6344e704952fc15ee48aceb084e9efe061afca9181142b9"
+    }
+  ]
+}

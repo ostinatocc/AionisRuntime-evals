@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ostinatocc/AionisRuntime-evals/schemas/artifact-bundle-manifest.schema.json",
+  "title": "Aionis bounded soak artifact bundle manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "candidate",
+    "harness_commit",
+    "source_workflow",
+    "publisher_workflow",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "aionis_soak_artifact_bundle_manifest_v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commit",
+        "digest"
+      ],
+      "properties": {
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    },
+    "harness_commit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "source_workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "run_id",
+        "run_attempt",
+        "head_sha",
+        "phase",
+        "job",
+        "environment"
+      ],
+      "properties": {
+        "repository": {
+          "const": "ostinatocc/AionisRuntime-evals"
+        },
+        "run_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "run_attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "head_sha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "phase": {
+          "const": "soak"
+        },
+        "job": {
+          "const": "paid-preflight"
+        },
+        "environment": {
+          "const": "bounded-soak"
+        }
+      }
+    },
+    "publisher_workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "run_id",
+        "run_attempt",
+        "head_sha",
+        "phase",
+        "job",
+        "environment"
+      ],
+      "properties": {
+        "repository": {
+          "const": "ostinatocc/AionisRuntime-evals"
+        },
+        "run_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "run_attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "head_sha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "phase": {
+          "const": "publisher"
+        },
+        "job": {
+          "const": "evidence-publisher"
+        },
+        "environment": {
+          "const": "bounded-soak-publisher"
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "uri",
+          "sha256",
+          "bytes"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "api_receipts",
+              "flight_recorder",
+              "offline_sqlite_verify",
+              "operator_snapshots",
+              "raw_agent_streams",
+              "worker_state"
+            ]
+          },
+          "uri": {
+            "type": "string",
+            "pattern": "^https://github\\.com/ostinatocc/AionisRuntime-evals/releases/download/[0-9A-Za-z._-]+/[0-9A-Za-z._-]+\\.jsonl$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8388608
+          }
+        }
+      }
+    }
+  }
+}

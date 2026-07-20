@@ -1,0 +1,49 @@
+name: Authority CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authority-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Frozen authority contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact tested commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js from .nvmrc
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Verify exact clean checkout and install without lifecycle scripts
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse 'HEAD^{commit}')" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
+          test "$(node -p 'process.versions.node.split(`.`)[0]')" = "24"
+          npm ci --ignore-scripts
+      - name: Run complete authority tests
+        run: npm test
+      - name: Validate frozen v0.3.12 fixtures
+        run: npm run -s validate:fixture
+      - name: Verify tests did not mutate authority bytes
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          git diff --cached --exit-code
+          test -z "$(git status --porcelain)"

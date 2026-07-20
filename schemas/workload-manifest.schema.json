@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ostinatocc/AionisRuntime-evals/schemas/workload-manifest.schema.json",
+  "title": "Aionis bounded soak workload manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "frozen_at",
+    "groups",
+    "scenarios",
+    "product_invariants",
+    "pilot",
+    "soak",
+    "verifier",
+    "recovery"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "aionis_soak_workload_manifest_v1"
+    },
+    "frozen_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "groups": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "product_invariants": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "golden_product_loop",
+          "product_loop",
+          "ordinary_memory_loop",
+          "single_agent_loop",
+          "multi_agent_loop"
+        ]
+      }
+    },
+    "pilot": {
+      "$ref": "#/$defs/pilot"
+    },
+    "soak": {
+      "$ref": "#/$defs/soak"
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "real_tools",
+        "deterministic_outcome_verifier",
+        "model_self_report_accepted"
+      ],
+      "properties": {
+        "real_tools": {
+          "const": true
+        },
+        "deterministic_outcome_verifier": {
+          "const": true
+        },
+        "model_self_report_accepted": {
+          "const": false
+        }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "after_wave_1",
+        "after_wave_2",
+        "after_wave_3"
+      ],
+      "properties": {
+        "after_wave_1": {
+          "const": "graceful_replacement"
+        },
+        "after_wave_2": {
+          "const": "sigkill_replacement"
+        },
+        "after_wave_3": {
+          "const": "offline_sqlite_verify"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "pilot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repetitions_per_cell",
+        "semantic_chat_calls",
+        "aionis_trials"
+      ],
+      "properties": {
+        "repetitions_per_cell": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "semantic_chat_calls": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "aionis_trials": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "soak": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repetitions_per_cell_per_wave",
+        "semantic_chat_calls",
+        "waves",
+        "semantic_chat_calls_per_wave",
+        "aionis_trials_per_wave",
+        "total_aionis_trials",
+        "negative_transfer_trials"
+      ],
+      "properties": {
+        "repetitions_per_cell_per_wave": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "semantic_chat_calls": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "waves": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "semantic_chat_calls_per_wave": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "aionis_trials_per_wave": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "total_aionis_trials": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "negative_transfer_trials": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}
