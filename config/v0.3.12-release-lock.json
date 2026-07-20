@@ -117,11 +117,19 @@
   "stable_governance_artifacts": [
     {
       "path": ".github/workflows/ci.yml",
-      "sha256": "a4bcbddfc3e104ad00c5a0a6399c38517f48b3cb65bd80193f48889a6e1c1af7"
+      "sha256": "2cbe56d9956f28d5be8d05b2a49da2313c2905fc7f5017ea074b4556b1c1423e"
     },
     {
       "path": ".github/workflows/docker.yml",
-      "sha256": "1a32746e4167ba180c1b53b5933dc98c6a52e028584283cf32a49d1bfcd3b90d"
+      "sha256": "a58f00b0156a2d65a056b9e0b13d258830e3c641e06b90feb1fe19d7775b0252"
+    },
+    {
+      "path": ".github/workflows/exact-main-embedding-smoke.yml",
+      "sha256": "103eaa9e1274ae520a28c8911508efc302066d0f3414621256cb87885d28ee85"
+    },
+    {
+      "path": ".github/workflows/release-smoke.yml",
+      "sha256": "57dc41a395b203437d6886c70b9629f3728aa33aa8212d3c0dc48910b7e8526c"
     },
     {
       "path": "scripts/ci/docker-recovery-smoke.sh",
@@ -145,11 +153,11 @@
     },
     {
       "path": "scripts/ci/release-workflow-contract.test.mjs",
-      "sha256": "6ca99f7243bdea7edc9a648f0eaac95f157e6de57edbdde26e2311337eb3d699"
+      "sha256": "004892f2b3e20eedf4bdd7337dc22567063e65cd419e1fbbd14e8e71531b4e5b"
     },
     {
       "path": "scripts/ci/runtime-complexity-budget.test.mjs",
-      "sha256": "b442f33ad234bdee7db6607e993e392e3ad79216542ece639d4d35097a3abb89"
+      "sha256": "aba7dbb4c157b5981cc2de58f1d0b6a7fb14d651fa65f99fdb943679b0705508"
     },
     {
       "path": "scripts/ci/sdk-contract-ownership.test.mjs",

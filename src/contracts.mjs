@@ -16,6 +16,8 @@ export const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
 export const STABLE_GOVERNANCE_PATHS = Object.freeze([
   ".github/workflows/ci.yml",
   ".github/workflows/docker.yml",
+  ".github/workflows/exact-main-embedding-smoke.yml",
+  ".github/workflows/release-smoke.yml",
   "scripts/ci/docker-recovery-smoke.sh",
   "scripts/ci/release-package-artifacts.sh",
   "scripts/ci/release-artifact-gate.mjs",
