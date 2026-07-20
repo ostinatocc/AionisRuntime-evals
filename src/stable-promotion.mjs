@@ -27,6 +27,8 @@ const ALLOWED_POST_CANDIDATE_FILES = new Set([
   ".gitignore",
   ".github/workflows/ci.yml",
   ".github/workflows/docker.yml",
+  ".github/workflows/exact-main-embedding-smoke.yml",
+  ".github/workflows/release-smoke.yml",
   "CHANGELOG.md",
   "package-lock.json",
   "package.json",

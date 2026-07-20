@@ -7,14 +7,15 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WORKFLOW = fs.readFileSync(path.join(ROOT, ".github/workflows/bounded-soak.yml"), "utf8");
 const CI_WORKFLOW = fs.readFileSync(path.join(ROOT, ".github/workflows/ci.yml"), "utf8");
+const ACTION_REFS = new Set(["actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"]);
+const assertPinnedActions = (source, count) => { const refs = [...source.matchAll(/\buses:\s*([^\s,}]+)/g)].map((match) => match[1]); assert.equal(refs.length, count); for (const ref of refs) assert.equal(ACTION_REFS.has(ref), true, `untrusted or mutable workflow action: ${ref}`); };
 
 test("authority CI is a pinned read-only push and pull-request required check", () => {
   assert.match(CI_WORKFLOW, /^  push:\n    branches:\n      - main$/m);
   assert.match(CI_WORKFLOW, /^  pull_request:\n    branches:\n      - main$/m);
   assert.doesNotMatch(CI_WORKFLOW, /workflow_dispatch:|schedule:|secrets\.|contents: write|continue-on-error/);
   assert.match(CI_WORKFLOW, /^permissions:\n  contents: read$/m);
-  assert.match(CI_WORKFLOW, /actions\/checkout@[a-f0-9]{40}/);
-  assert.match(CI_WORKFLOW, /actions\/setup-node@[a-f0-9]{40}/);
+  assertPinnedActions(CI_WORKFLOW, 2);
   assert.match(CI_WORKFLOW, /persist-credentials: false/);
   assert.match(CI_WORKFLOW, /npm ci --ignore-scripts/);
   assert.match(CI_WORKFLOW, /npm test/);
@@ -33,9 +34,7 @@ test("bounded soak workflow is manual-only with read-only default permissions", 
 });
 
 test("workflow pins actions, uses Node 24 lock, and disables checkout credentials", () => {
-  assert.doesNotMatch(WORKFLOW, /uses:\s+[^\s]+@v\d+/);
-  assert.match(WORKFLOW, /actions\/checkout@[a-f0-9]{40}/);
-  assert.match(WORKFLOW, /actions\/setup-node@[a-f0-9]{40}/);
+  assertPinnedActions(WORKFLOW, 4);
   assert.match(WORKFLOW, /node-version-file: \.nvmrc/);
   assert.match(WORKFLOW, /persist-credentials: false/);
   assert.match(WORKFLOW, /npm ci --ignore-scripts/);
@@ -51,13 +50,11 @@ test("paid phase needs explicit input, protected environment, and persistent sel
   assert.match(WORKFLOW, /--execute/);
 });
 
-test("only the protected GitHub-hosted publisher can request contents write", () => {
-  const matches = [...WORKFLOW.matchAll(/contents: write/g)];
-  assert.equal(matches.length, 1);
+test("unimplemented publisher retains no write authority", () => {
+  assert.doesNotMatch(WORKFLOW, /contents: write|packages: write|docker\/login-action|push: true/);
   assert.match(WORKFLOW, /evidence-publisher:[\s\S]*?needs: paid-preflight/);
   assert.match(WORKFLOW, /evidence-publisher:[\s\S]*?runs-on: ubuntu-24\.04/);
   assert.match(WORKFLOW, /evidence-publisher:[\s\S]*?name: bounded-soak-publisher/);
-  assert.match(WORKFLOW, /evidence-publisher:[\s\S]*?permissions:\n      contents: write/);
   assert.match(WORKFLOW, /EVIDENCE_PUBLISHER_UNAVAILABLE/);
 });
 
