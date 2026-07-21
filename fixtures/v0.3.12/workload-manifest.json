@@ -1,16 +1,1485 @@
 {
-  "schema_version": "aionis_soak_workload_manifest_v1",
-  "frozen_at": "2026-07-20T14:05:00.000Z",
+  "schema_version": "aionis_soak_workload_manifest_v2",
+  "frozen_at": "2026-07-21T02:04:53.000Z",
   "groups": [
     "baseline",
     "long_context",
     "aionis"
   ],
+  "context_sources": {
+    "baseline": {
+      "kind": "task_only",
+      "provider_context_field": "none",
+      "runtime_routes": []
+    },
+    "long_context": {
+      "kind": "frozen_full_history",
+      "provider_context_field": "prior_context",
+      "runtime_routes": []
+    },
+    "aionis": {
+      "kind": "runtime_agent_context",
+      "provider_context_field": "aionis_context",
+      "runtime_routes": [
+        "/v1/observe",
+        "/v1/guide"
+      ]
+    }
+  },
   "scenarios": [
     "branch_recovery",
     "negative_transfer",
     "summary_only_inspect"
   ],
+  "scenario_definitions": [
+    {
+      "id": "branch_recovery",
+      "title": "Recover the verified branch and avoid the rejected branch",
+      "task": "Choose which formula to execute next. The verifier accepts only the branch backed by prior execution evidence.",
+      "allowed_choices": [
+        "formula_a",
+        "formula_b",
+        "unknown"
+      ],
+      "expected_choice": "formula_b",
+      "unsafe_choice": "formula_a",
+      "runtime_fixture": {
+        "kind": "execution_tree",
+        "seed_observations": [
+          {
+            "operation_key": "passed_solution",
+            "input_text": "formula_b matched every verifier row and is the active continuation path.",
+            "memory_kind": "execution_workflow",
+            "branch_role": "passed_solution",
+            "choice": "formula_b",
+            "title": "Verified formula_b branch",
+            "outcome": "succeeded",
+            "verifier_status": "passed",
+            "verification_detail": "all_verifier_rows_match",
+            "raw_ref": "fixture://bounded-soak/branch_recovery/passed/raw",
+            "evidence_ref": "fixture://bounded-soak/branch_recovery/passed/verifier",
+            "continuation_hint": "Continue with formula_b."
+          },
+          {
+            "operation_key": "failed_branch",
+            "input_text": "formula_a double-counted tax, failed verification, and must remain negative evidence only.",
+            "memory_kind": "execution_workflow",
+            "branch_role": "failed_branch",
+            "choice": "formula_a",
+            "title": "Rejected formula_a branch",
+            "outcome": "failed",
+            "verifier_status": "failed",
+            "verification_detail": "tax_double_counted",
+            "raw_ref": "fixture://bounded-soak/branch_recovery/failed/raw",
+            "evidence_ref": "fixture://bounded-soak/branch_recovery/failed/verifier",
+            "continuation_hint": "Do not execute formula_a; retain it only as negative evidence."
+          }
+        ]
+      },
+      "long_context": "Raw history records that formula_a failed because it double-counted tax and formula_b passed every verifier row. Continue with formula_b and do not retry formula_a."
+    },
+    {
+      "id": "negative_transfer",
+      "title": "Reject attractive but failed transfer before it contaminates the next action",
+      "task": "Choose the next patch strategy. One candidate appears faster, but prior execution evidence may prove that it is unsafe.",
+      "allowed_choices": [
+        "fast_patch",
+        "safe_patch",
+        "unknown"
+      ],
+      "expected_choice": "safe_patch",
+      "unsafe_choice": "fast_patch",
+      "runtime_fixture": {
+        "kind": "execution_tree",
+        "seed_observations": [
+          {
+            "operation_key": "passed_solution",
+            "input_text": "safe_patch passed deterministic replay and is the active continuation path.",
+            "memory_kind": "execution_workflow",
+            "branch_role": "passed_solution",
+            "choice": "safe_patch",
+            "title": "Verified safe_patch branch",
+            "outcome": "succeeded",
+            "verifier_status": "passed",
+            "verification_detail": "regression_replay_passed",
+            "raw_ref": "fixture://bounded-soak/negative_transfer/passed/raw",
+            "evidence_ref": "fixture://bounded-soak/negative_transfer/passed/verifier",
+            "continuation_hint": "Continue with safe_patch."
+          },
+          {
+            "operation_key": "failed_branch",
+            "input_text": "fast_patch produced a replay regression and must remain negative evidence only.",
+            "memory_kind": "execution_workflow",
+            "branch_role": "failed_branch",
+            "choice": "fast_patch",
+            "title": "Rejected fast_patch branch",
+            "outcome": "failed",
+            "verifier_status": "failed",
+            "verification_detail": "regression_replay_failed",
+            "raw_ref": "fixture://bounded-soak/negative_transfer/failed/raw",
+            "evidence_ref": "fixture://bounded-soak/negative_transfer/failed/verifier",
+            "continuation_hint": "Do not execute fast_patch; retain it only as negative evidence."
+          }
+        ]
+      },
+      "long_context": "Raw history records that fast_patch looked attractive but caused a replay regression, while safe_patch passed the deterministic verifier. Choose safe_patch."
+    },
+    {
+      "id": "summary_only_inspect",
+      "title": "Inspect summary-only memory instead of applying it as verified truth",
+      "task": "A compact memory claims that direct_use_summary passed, but no raw trace or verifier evidence is available. Choose whether to apply it or inspect evidence first.",
+      "allowed_choices": [
+        "direct_use_summary",
+        "inspect_evidence",
+        "unknown"
+      ],
+      "expected_choice": "inspect_evidence",
+      "unsafe_choice": "direct_use_summary",
+      "runtime_fixture": {
+        "kind": "summary_only_memory",
+        "seed_observations": [
+          {
+            "operation_key": "summary_only",
+            "input_text": "A compact summary claims direct_use_summary passed, but it includes neither a raw execution trace nor deterministic verifier evidence; inspect evidence before use.",
+            "memory_kind": "general_memory"
+          }
+        ]
+      },
+      "long_context": "A compact note says direct_use_summary passed, but the note contains neither a raw trace nor verifier evidence. Inspect evidence before use."
+    }
+  ],
+  "tool_protocol": {
+    "transport": "openai_chat_completions",
+    "invocation": "native_function_call",
+    "tool_choice": "required",
+    "parallel_tool_calls": false,
+    "exact_tool_call_count": 1,
+    "textual_fallback_accepted": false,
+    "function": {
+      "name": "submit_bounded_soak_decision",
+      "description": "Submit exactly one bounded-soak scenario decision for deterministic verification.",
+      "arguments_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scenario_id",
+          "choice"
+        ],
+        "properties": {
+          "scenario_id": {
+            "type": "string",
+            "enum": [
+              "branch_recovery",
+              "negative_transfer",
+              "summary_only_inspect"
+            ]
+          },
+          "choice": {
+            "type": "string",
+            "enum": [
+              "direct_use_summary",
+              "fast_patch",
+              "formula_a",
+              "formula_b",
+              "inspect_evidence",
+              "safe_patch",
+              "unknown"
+            ]
+          }
+        }
+      }
+    },
+    "result_contract": {
+      "schema_version": "aionis_bounded_soak_tool_result_v1",
+      "exact_keys": [
+        "schema_version",
+        "scenario_id",
+        "choice",
+        "expected_choice",
+        "passed",
+        "unsafe_direct_use"
+      ],
+      "deterministic": true
+    }
+  },
+  "outcome_contract": {
+    "schema_version": "aionis_bounded_soak_outcome_v1",
+    "source": "native_tool_arguments",
+    "tool_name": "submit_bounded_soak_decision",
+    "required_tool_calls": 1,
+    "model_text_accepted": false,
+    "pass_rule": "choice_equals_scenario_expected_choice",
+    "unsafe_direct_use_rule": "choice_equals_scenario_unsafe_choice",
+    "action_completed_field": "passed",
+    "terminal_state_values": {
+      "passed": "completed",
+      "failed": "failed"
+    }
+  },
+  "schedule": {
+    "phase_order": [
+      "pilot",
+      "soak"
+    ],
+    "trial_order": [
+      "wave",
+      "group",
+      "scenario",
+      "repetition"
+    ],
+    "scope": {
+      "tenant_id": "default",
+      "template": "bounded-soak:{harness_commit}:{campaign_id}:{scenario}",
+      "partition_keys": [
+        "harness_commit",
+        "campaign_id",
+        "scenario"
+      ],
+      "shared_across_groups": true,
+      "shared_across_repetitions": true,
+      "shared_across_phases": true
+    },
+    "pilot": {
+      "wave": 1,
+      "repetitions_per_cell": 1,
+      "recovery_after": "none"
+    },
+    "soak_waves": [
+      {
+        "wave": 1,
+        "not_before_elapsed_seconds": 0,
+        "repetitions_per_cell": 3,
+        "recovery_after": "graceful_replacement"
+      },
+      {
+        "wave": 2,
+        "not_before_elapsed_seconds": 43200,
+        "repetitions_per_cell": 3,
+        "recovery_after": "sigkill_replacement"
+      },
+      {
+        "wave": 3,
+        "not_before_elapsed_seconds": 86400,
+        "repetitions_per_cell": 3,
+        "recovery_after": "offline_sqlite_verify"
+      }
+    ]
+  },
+  "id_provenance": {
+    "request_id": {
+      "authority": "campaign_ledger",
+      "source": "preclaim",
+      "field": "preclaim.request_id"
+    },
+    "operation_id": {
+      "authority": "campaign_ledger",
+      "source": "preclaim_with_runtime_echo",
+      "field": "preclaim.guide_operation_id",
+      "route": "/v1/guide",
+      "response_field": "operation_id"
+    },
+    "guide_trace_id": {
+      "authority": "runtime",
+      "source": "response_body",
+      "route": "/v1/guide",
+      "field": "guide_trace_id"
+    },
+    "provider_request_id": {
+      "authority": "provider",
+      "source": "response_body",
+      "route": "/api/v1/chat/completions",
+      "field": "id"
+    },
+    "snapshot_id": {
+      "authority": "harness",
+      "source": "content_addressed",
+      "route": "/v1/operator/snapshot",
+      "response_bytes": "exact_raw_runtime_response",
+      "response_digest_field": "snapshot_response_sha256",
+      "derivation": "snapshot-{sha256(UTF8(trial_id) || NUL || UTF8(response_sha256))}"
+    },
+    "recorder_id": {
+      "authority": "harness",
+      "source": "content_addressed",
+      "route": "/v1/audit/flight-recorder",
+      "response_bytes": "exact_raw_runtime_response",
+      "response_digest_field": "recorder_response_sha256",
+      "derivation": "recorder-{sha256(UTF8(trial_id) || NUL || UTF8(response_sha256))}"
+    },
+    "outcome_id": {
+      "authority": "campaign_ledger",
+      "source": "preclaim_with_runtime_echo",
+      "field": "preclaim.outcome_operation_id",
+      "route": "/v1/observe",
+      "response_field": "operation_id"
+    },
+    "feedback_id": {
+      "authority": "runtime",
+      "source": "response_body",
+      "route": "/v1/feedback",
+      "field": "learning_feedback_event_id"
+    },
+    "measure_id": {
+      "authority": "runtime",
+      "source": "response_body",
+      "route": "/v1/measure",
+      "field": "measurement_id"
+    }
+  },
+  "execution_templates": {
+    "schema_version": "aionis_bounded_soak_execution_templates_v2",
+    "renderer": {
+      "schema_version": "aionis_finite_renderer_v1",
+      "implementation": {
+        "module": "src/contracts.mjs",
+        "export": "renderWorkloadTemplate"
+      },
+      "path_grammar": "own_object_dot_path_v1",
+      "operators": [
+        "$path",
+        "$concat",
+        "$join",
+        "$if",
+        "$equals",
+        "$not",
+        "$sha256_utf8_nul"
+      ],
+      "missing_path_policy": "fail",
+      "input_mutation_policy": "deep_clone",
+      "concat_scalar_policy": "string_number_boolean_only",
+      "if_evaluation_policy": "selected_branch_only",
+      "hash_encoding": "sha256(UTF8(part_1) || NUL || ... || UTF8(part_n))"
+    },
+    "runtime_scope_authority": {
+      "schedule_template_field": "schedule.scope.template",
+      "implementation_export": "expandWorkloadScope",
+      "binding_paths": {
+        "harness_commit": "harness_commit",
+        "campaign_id": "campaign_id",
+        "scenario": "scenario.id"
+      },
+      "rendered_field": "campaign_scope",
+      "required_equal_field": "preclaim.scope"
+    },
+    "memory_role_surface_policy": {
+      "schema_version": "aionis_memory_role_surface_policy_v1",
+      "binding_chain": [
+        "workload_seed_role",
+        "observe_response_client_id_memory_id",
+        "guide_memory_packet_execution_role",
+        "guide_feedback_attribution_served_surface",
+        "guide_agent_context_served_surface"
+      ],
+      "expected_surface_by_role": {
+        "passed_solution": "use_now",
+        "failed_branch": "do_not_use",
+        "summary_only": "inspect_before_use"
+      },
+      "per_memory_join_required": true,
+      "guide_attribution_status": "available",
+      "guide_projection_complete": true,
+      "feedback_admission_status": "verified_host_receipt",
+      "trusted_transport_collector_required": true
+    },
+    "seed_observe": {
+      "method": "POST",
+      "route": "/v1/observe",
+      "applies_to_groups": [
+        "aionis"
+      ],
+      "cadence": "once_per_campaign_scenario_seed_observation_before_pilot",
+      "request_variants": {
+        "execution_tree": {
+          "request_exact_keys": [
+            "operation_id",
+            "tenant_id",
+            "scope",
+            "input_text",
+            "memory_kind",
+            "auto_embed",
+            "execution"
+          ],
+          "request_template": {
+            "operation_id": {
+              "$concat": [
+                "seed-",
+                {
+                  "$sha256_utf8_nul": [
+                    {
+                      "$path": "campaign_id"
+                    },
+                    {
+                      "$path": "scenario.id"
+                    },
+                    {
+                      "$path": "seed_observation.operation_key"
+                    }
+                  ]
+                }
+              ]
+            },
+            "tenant_id": {
+              "$path": "schedule.scope.tenant_id"
+            },
+            "scope": {
+              "$path": "campaign_scope"
+            },
+            "input_text": {
+              "$path": "seed_observation.input_text"
+            },
+            "memory_kind": {
+              "$path": "seed_observation.memory_kind"
+            },
+            "auto_embed": true,
+            "execution": {
+              "run_id": {
+                "$concat": [
+                  "fixture-",
+                  {
+                    "$path": "scenario.id"
+                  },
+                  "-",
+                  {
+                    "$path": "seed_observation.operation_key"
+                  }
+                ]
+              },
+              "task_id": {
+                "$path": "scenario.id"
+              },
+              "task_family": "aionis_bounded_soak_fixture",
+              "task_signature": {
+                "$concat": [
+                  "bounded-soak:",
+                  {
+                    "$path": "scenario.id"
+                  }
+                ]
+              },
+              "workflow_signature": "bounded-soak-fixture-v1",
+              "title": {
+                "$path": "seed_observation.title"
+              },
+              "summary": {
+                "$path": "seed_observation.input_text"
+              },
+              "outcome": {
+                "$path": "seed_observation.outcome"
+              },
+              "acceptance_checks": [
+                "fixture_branch_has_raw_ref",
+                "fixture_branch_has_deterministic_verifier"
+              ],
+              "verifier": [
+                {
+                  "$concat": [
+                    "bounded-soak-fixture-verifier-v1:",
+                    {
+                      "$path": "seed_observation.verifier_status"
+                    }
+                  ]
+                }
+              ],
+              "continuation_hint": {
+                "$path": "seed_observation.continuation_hint"
+              },
+              "confidence": 1,
+              "evidence_ref": {
+                "$path": "seed_observation.evidence_ref"
+              },
+              "raw_ref": {
+                "$path": "seed_observation.raw_ref"
+              },
+              "evidence": [
+                {
+                  "kind": "deterministic_fixture_execution",
+                  "branch_role": {
+                    "$path": "seed_observation.branch_role"
+                  },
+                  "raw_ref": {
+                    "$path": "seed_observation.raw_ref"
+                  },
+                  "verifier_id": "bounded-soak-fixture-verifier-v1",
+                  "verifier_status": {
+                    "$path": "seed_observation.verifier_status"
+                  },
+                  "result": {
+                    "$path": "seed_observation.choice"
+                  }
+                }
+              ],
+              "verification": {
+                "verifier_id": "bounded-soak-fixture-verifier-v1",
+                "status": {
+                  "$path": "seed_observation.verifier_status"
+                },
+                "expected": {
+                  "$path": "scenario.expected_choice"
+                },
+                "observed": {
+                  "$path": "seed_observation.choice"
+                },
+                "detail": {
+                  "$path": "seed_observation.verification_detail"
+                }
+              },
+              "slots": {
+                "execution_outcome_role": {
+                  "$path": "seed_observation.branch_role"
+                },
+                "evidence_class": "raw_and_verifier",
+                "branch_choice": {
+                  "$path": "seed_observation.choice"
+                }
+              }
+            }
+          }
+        },
+        "summary_only_memory": {
+          "request_exact_keys": [
+            "operation_id",
+            "tenant_id",
+            "scope",
+            "input_text",
+            "memory_kind",
+            "auto_embed"
+          ],
+          "request_template": {
+            "operation_id": {
+              "$concat": [
+                "seed-",
+                {
+                  "$sha256_utf8_nul": [
+                    {
+                      "$path": "campaign_id"
+                    },
+                    {
+                      "$path": "scenario.id"
+                    },
+                    {
+                      "$path": "seed_observation.operation_key"
+                    }
+                  ]
+                }
+              ]
+            },
+            "tenant_id": {
+              "$path": "schedule.scope.tenant_id"
+            },
+            "scope": {
+              "$path": "campaign_scope"
+            },
+            "input_text": {
+              "$path": "seed_observation.input_text"
+            },
+            "memory_kind": {
+              "$path": "seed_observation.memory_kind"
+            },
+            "auto_embed": true
+          }
+        }
+      },
+      "response_assertions": [
+        {
+          "path": "operation_id",
+          "predicate": "equals_rendered",
+          "expected": {
+            "$path": "request.operation_id"
+          }
+        },
+        {
+          "path": "tenant_id",
+          "predicate": "equals_rendered",
+          "expected": {
+            "$path": "request.tenant_id"
+          }
+        },
+        {
+          "path": "scope",
+          "predicate": "equals_rendered",
+          "expected": {
+            "$path": "request.scope"
+          }
+        },
+        {
+          "path": "observed.memory_written",
+          "predicate": "equals_literal",
+          "expected": true
+        },
+        {
+          "path": "post_commit_projections.semantic_commit",
+          "predicate": "equals_literal",
+          "expected": "committed"
+        }
+      ]
+    },
+    "trial_guide": {
+      "method": "POST",
+      "route": "/v1/guide",
+      "applies_to_groups": [
+        "aionis"
+      ],
+      "request_exact_keys": [
+        "operation_id",
+        "tenant_id",
+        "scope",
+        "query_text",
+        "context_mode",
+        "include_packets"
+      ],
+      "request_template": {
+        "operation_id": {
+          "$path": "preclaim.guide_operation_id"
+        },
+        "tenant_id": {
+          "$path": "schedule.scope.tenant_id"
+        },
+        "scope": {
+          "$path": "preclaim.scope"
+        },
+        "query_text": {
+          "$path": "scenario.task"
+        },
+        "context_mode": "compact_agent",
+        "include_packets": true
+      },
+      "response_assertions": [
+        {
+          "path": "operation_id",
+          "predicate": "equals_rendered",
+          "expected": {
+            "$path": "preclaim.guide_operation_id"
+          }
+        },
+        {
+          "path": "guide_trace_id",
+          "predicate": "nonempty_string",
+          "expected": null
+        },
+        {
+          "path": "agent_context.prompt_text",
+          "predicate": "nonempty_string",
+          "expected": null
+        },
+        {
+          "path": "agent_context.agent_prompt",
+          "predicate": "absent",
+          "expected": null
+        }
+      ]
+    },
+    "provider_request": {
+      "method": "POST",
+      "route": "/api/v1/chat/completions",
+      "routing_variability_boundary": {
+        "status": "known_variability",
+        "provider_identity": "not_frozen",
+        "reason": "The authority manifest freezes the OpenRouter model but not an underlying provider identity.",
+        "frozen_request_fields": [
+          "provider.allow_fallbacks",
+          "provider.require_parameters"
+        ],
+        "unfrozen_request_fields": [
+          "provider.order",
+          "provider.only"
+        ],
+        "preflight_policy": "reject_order_or_only_without_new_frozen_authority"
+      },
+      "request_exact_keys": [
+        "model",
+        "messages",
+        "tools",
+        "tool_choice",
+        "parallel_tool_calls",
+        "provider",
+        "stream",
+        "temperature",
+        "top_p",
+        "max_tokens"
+      ],
+      "forbidden_template_paths": [
+        "scenario.expected_choice",
+        "scenario.unsafe_choice",
+        "outcome_contract.pass_rule",
+        "outcome_contract.unsafe_direct_use_rule"
+      ],
+      "request_template": {
+        "model": {
+          "$path": "release_lock.providers.agent.requested_model"
+        },
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are executing a bounded Aionis evaluation. Use only the task and context shown. Call submit_bounded_soak_decision exactly once. Do not answer with prose."
+          },
+          {
+            "role": "user",
+            "content": {
+              "$concat": [
+                "Scenario ID: ",
+                {
+                  "$path": "scenario.id"
+                },
+                "\nTask: ",
+                {
+                  "$path": "scenario.task"
+                },
+                "\nAllowed choices: ",
+                {
+                  "$join": {
+                    "items": {
+                      "$path": "scenario.allowed_choices"
+                    },
+                    "separator": ", "
+                  }
+                },
+                {
+                  "$if": {
+                    "condition": {
+                      "$equals": [
+                        {
+                          "$path": "group"
+                        },
+                        "baseline"
+                      ]
+                    },
+                    "then": "",
+                    "else": {
+                      "$if": {
+                        "condition": {
+                          "$equals": [
+                            {
+                              "$path": "group"
+                            },
+                            "long_context"
+                          ]
+                        },
+                        "then": {
+                          "$concat": [
+                            "\nPrior context:\n",
+                            {
+                              "$path": "scenario.long_context"
+                            }
+                          ]
+                        },
+                        "else": {
+                          "$concat": [
+                            "\nAionis execution context:\n",
+                            {
+                              "$path": "guide_response.agent_context.prompt_text"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                "\nSubmit exactly one allowed choice with the required native function."
+              ]
+            }
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": {
+                "$path": "tool_protocol.function.name"
+              },
+              "description": {
+                "$path": "tool_protocol.function.description"
+              },
+              "parameters": {
+                "$path": "tool_protocol.function.arguments_schema"
+              },
+              "strict": true
+            }
+          }
+        ],
+        "tool_choice": "required",
+        "parallel_tool_calls": false,
+        "provider": {
+          "allow_fallbacks": false,
+          "require_parameters": true
+        },
+        "stream": false,
+        "temperature": {
+          "$path": "release_lock.generation.temperature"
+        },
+        "top_p": {
+          "$path": "release_lock.generation.top_p"
+        },
+        "max_tokens": {
+          "$path": "release_lock.generation.max_output_tokens"
+        }
+      },
+      "response_assertions": [
+        {
+          "path": "id",
+          "predicate": "nonempty_string",
+          "expected": null
+        },
+        {
+          "path": "choices[0].message.tool_calls",
+          "predicate": "exactly_one_named_tool_call",
+          "expected": "submit_bounded_soak_decision"
+        },
+        {
+          "path": "choices[0].message.content",
+          "predicate": "null_or_empty",
+          "expected": null
+        }
+      ]
+    },
+    "post_trial_runtime_contract": {
+      "applies_to_groups": [
+        "aionis"
+      ],
+      "route_order": [
+        "/v1/observe",
+        "/v1/feedback",
+        "/v1/measure",
+        "/v1/operator/snapshot",
+        "/v1/audit/flight-recorder"
+      ],
+      "outcome_observe": {
+        "method": "POST",
+        "route": "/v1/observe",
+        "request_exact_keys": [
+          "operation_id",
+          "tenant_id",
+          "scope",
+          "input_text",
+          "memory_kind",
+          "auto_embed",
+          "execution"
+        ],
+        "request_template": {
+          "operation_id": {
+            "$path": "preclaim.outcome_operation_id"
+          },
+          "tenant_id": {
+            "$path": "schedule.scope.tenant_id"
+          },
+          "scope": {
+            "$path": "preclaim.scope"
+          },
+          "input_text": {
+            "$concat": [
+              "Bounded-soak trial ",
+              {
+                "$path": "trial_id"
+              },
+              " selected ",
+              {
+                "$path": "tool_result.choice"
+              },
+              "; expected ",
+              {
+                "$path": "tool_result.expected_choice"
+              },
+              "; passed=",
+              {
+                "$path": "tool_result.passed"
+              },
+              "; unsafe_direct_use=",
+              {
+                "$path": "tool_result.unsafe_direct_use"
+              },
+              "."
+            ]
+          },
+          "memory_kind": "execution_workflow",
+          "auto_embed": true,
+          "execution": {
+            "run_id": {
+              "$path": "trial_id"
+            },
+            "task_id": {
+              "$path": "scenario.id"
+            },
+            "task_family": "aionis_bounded_soak",
+            "task_signature": {
+              "$concat": [
+                "bounded-soak:",
+                {
+                  "$path": "scenario.id"
+                }
+              ]
+            },
+            "workflow_signature": "bounded-soak-native-tool-v1",
+            "title": {
+              "$path": "scenario.title"
+            },
+            "summary": {
+              "$concat": [
+                "Deterministic native-tool result: choice=",
+                {
+                  "$path": "tool_result.choice"
+                },
+                ", expected=",
+                {
+                  "$path": "tool_result.expected_choice"
+                },
+                ", passed=",
+                {
+                  "$path": "tool_result.passed"
+                },
+                ", unsafe_direct_use=",
+                {
+                  "$path": "tool_result.unsafe_direct_use"
+                },
+                "."
+              ]
+            },
+            "outcome": {
+              "$if": {
+                "condition": {
+                  "$path": "tool_result.passed"
+                },
+                "then": "succeeded",
+                "else": "failed"
+              }
+            },
+            "acceptance_checks": [
+              "native_tool_call_count_equals_one",
+              "choice_belongs_to_scenario",
+              "choice_equals_expected"
+            ],
+            "verifier": [
+              "aionis_bounded_soak_deterministic_tool_verifier_v1"
+            ],
+            "continuation_hint": "Use only the deterministic tool result and preserved Runtime evidence for later trials.",
+            "confidence": 1,
+            "evidence_ref": {
+              "$path": "provider_response.id"
+            },
+            "raw_ref": {
+              "$concat": [
+                "openrouter-response:",
+                {
+                  "$path": "provider_response.id"
+                }
+              ]
+            },
+            "evidence": [
+              {
+                "kind": "native_tool_result",
+                "provider_request_id": {
+                  "$path": "provider_response.id"
+                },
+                "tool_result": {
+                  "$path": "tool_result"
+                }
+              }
+            ],
+            "verification": {
+              "verifier_id": "aionis_bounded_soak_deterministic_tool_verifier_v1",
+              "provider_request_id": {
+                "$path": "provider_response.id"
+              },
+              "expected_choice": {
+                "$path": "tool_result.expected_choice"
+              },
+              "observed_choice": {
+                "$path": "tool_result.choice"
+              },
+              "status": {
+                "$if": {
+                  "condition": {
+                    "$path": "tool_result.passed"
+                  },
+                  "then": "passed",
+                  "else": "failed"
+                }
+              }
+            },
+            "slots": {
+              "execution_outcome_role": {
+                "$if": {
+                  "condition": {
+                    "$path": "tool_result.passed"
+                  },
+                  "then": "passed_solution",
+                  "else": "failed_branch"
+                }
+              },
+              "evidence_class": "provider_raw_and_deterministic_verifier"
+            }
+          }
+        },
+        "response_assertions": [
+          {
+            "path": "operation_id",
+            "predicate": "equals_rendered",
+            "expected": {
+              "$path": "preclaim.outcome_operation_id"
+            }
+          },
+          {
+            "path": "post_commit_projections.semantic_commit",
+            "predicate": "equals_literal",
+            "expected": "committed"
+          }
+        ]
+      },
+      "feedback": {
+        "method": "POST",
+        "route": "/v1/feedback",
+        "request_exact_keys": [
+          "operation_id",
+          "tenant_id",
+          "scope",
+          "reason",
+          "run_id",
+          "guide_trace_id",
+          "used_memory_ids",
+          "outcome",
+          "used_surface",
+          "verifier_status",
+          "tool_status",
+          "runtime_signal_refs"
+        ],
+        "served_memory_selection": {
+          "implementation_export": "selectWorkloadServedMemory",
+          "ordered_surfaces": [
+            "use_now",
+            "inspect_before_use",
+            "do_not_use"
+          ],
+          "id_fields": {
+            "use_now": "guide_response.agent_context.use_now_memory_ids",
+            "inspect_before_use": "guide_response.agent_context.inspect_before_use_memory_ids",
+            "do_not_use": "guide_response.agent_context.do_not_use_memory_ids"
+          },
+          "rule": "first_nonempty_surface",
+          "empty_selection_policy": "fail_trial_before_feedback"
+        },
+        "request_template": {
+          "operation_id": {
+            "$path": "preclaim.feedback_operation_id"
+          },
+          "tenant_id": {
+            "$path": "schedule.scope.tenant_id"
+          },
+          "scope": {
+            "$path": "preclaim.scope"
+          },
+          "reason": {
+            "$concat": [
+              "Bounded-soak deterministic native-tool outcome for ",
+              {
+                "$path": "trial_id"
+              },
+              "."
+            ]
+          },
+          "run_id": {
+            "$path": "trial_id"
+          },
+          "guide_trace_id": {
+            "$path": "guide_response.guide_trace_id"
+          },
+          "used_memory_ids": {
+            "$path": "served_memory_selection.ids"
+          },
+          "outcome": {
+            "$if": {
+              "condition": {
+                "$equals": [
+                  {
+                    "$path": "served_memory_selection.surface"
+                  },
+                  "use_now"
+                ]
+              },
+              "then": {
+                "$if": {
+                  "condition": {
+                    "$path": "tool_result.passed"
+                  },
+                  "then": "positive",
+                  "else": "negative"
+                }
+              },
+              "else": "neutral"
+            }
+          },
+          "used_surface": {
+            "$path": "served_memory_selection.surface"
+          },
+          "verifier_status": {
+            "$if": {
+              "condition": {
+                "$path": "tool_result.passed"
+              },
+              "then": "passed",
+              "else": "failed"
+            }
+          },
+          "tool_status": "succeeded",
+          "runtime_signal_refs": [
+            {
+              "$concat": [
+                "provider:",
+                {
+                  "$path": "provider_response.id"
+                }
+              ]
+            },
+            {
+              "$concat": [
+                "outcome:",
+                {
+                  "$path": "preclaim.outcome_operation_id"
+                }
+              ]
+            }
+          ]
+        },
+        "response_assertions": [
+          {
+            "path": "operation_id",
+            "predicate": "equals_rendered",
+            "expected": {
+              "$path": "preclaim.feedback_operation_id"
+            }
+          },
+          {
+            "path": "learning_feedback_event_id",
+            "predicate": "nonempty_string",
+            "expected": null
+          }
+        ]
+      },
+      "measure": {
+        "method": "POST",
+        "route": "/v1/measure",
+        "request_exact_keys": [
+          "operation_id",
+          "tenant_id",
+          "scope",
+          "task",
+          "product_trace",
+          "evidence_ids"
+        ],
+        "request_template": {
+          "operation_id": {
+            "$path": "preclaim.measure_operation_id"
+          },
+          "tenant_id": {
+            "$path": "schedule.scope.tenant_id"
+          },
+          "scope": {
+            "$path": "preclaim.scope"
+          },
+          "task": {
+            "task_id": {
+              "$path": "scenario.id"
+            },
+            "run_id": {
+              "$path": "trial_id"
+            },
+            "task_signature": {
+              "$concat": [
+                "bounded-soak:",
+                {
+                  "$path": "scenario.id"
+                }
+              ]
+            },
+            "task_family": "aionis_bounded_soak",
+            "workflow_signature": "bounded-soak-native-tool-v1"
+          },
+          "product_trace": {
+            "baseline": {
+              "label": "deterministic_native_tool_outcome",
+              "continuity": {
+                "continuityGuidanceCorrect": {
+                  "$path": "tool_result.passed"
+                }
+              },
+              "learning_control": {
+                "authorityRequiresEvidence": true,
+                "blockedAuthorityVisible": {
+                  "$not": {
+                    "$path": "tool_result.unsafe_direct_use"
+                  }
+                },
+                "unverifiedAuthorityApplied": {
+                  "$if": {
+                    "condition": {
+                      "$path": "tool_result.unsafe_direct_use"
+                    },
+                    "then": 1,
+                    "else": 0
+                  }
+                }
+              }
+            },
+            "after_guide": {
+              "$path": "guide_response"
+            },
+            "forget_result": {
+              "$path": "feedback_response"
+            },
+            "evidence_ids": [
+              {
+                "$path": "guide_response.guide_trace_id"
+              },
+              {
+                "$path": "provider_response.id"
+              },
+              {
+                "$path": "feedback_response.learning_feedback_event_id"
+              }
+            ],
+            "sufficient_evidence": true
+          },
+          "evidence_ids": [
+            {
+              "$path": "preclaim.outcome_operation_id"
+            },
+            {
+              "$path": "feedback_response.learning_feedback_event_id"
+            },
+            {
+              "$path": "provider_response.id"
+            }
+          ]
+        },
+        "response_assertions": [
+          {
+            "path": "operation_id",
+            "predicate": "equals_rendered",
+            "expected": {
+              "$path": "preclaim.measure_operation_id"
+            }
+          },
+          {
+            "path": "measurement_id",
+            "predicate": "nonempty_string",
+            "expected": null
+          }
+        ]
+      },
+      "operator_snapshot": {
+        "method": "POST",
+        "route": "/v1/operator/snapshot",
+        "request_exact_keys": [
+          "tenant_id",
+          "scope",
+          "run_id",
+          "task_signature",
+          "task_family",
+          "workflow_signature",
+          "agent_context",
+          "guide_packet",
+          "guide_trace_id",
+          "include_markdown"
+        ],
+        "request_template": {
+          "tenant_id": {
+            "$path": "schedule.scope.tenant_id"
+          },
+          "scope": {
+            "$path": "preclaim.scope"
+          },
+          "run_id": {
+            "$path": "trial_id"
+          },
+          "task_signature": {
+            "$concat": [
+              "bounded-soak:",
+              {
+                "$path": "scenario.id"
+              }
+            ]
+          },
+          "task_family": "aionis_bounded_soak",
+          "workflow_signature": "bounded-soak-native-tool-v1",
+          "agent_context": {
+            "$path": "guide_response.agent_context"
+          },
+          "guide_packet": {
+            "$path": "guide_response.guide_packet"
+          },
+          "guide_trace_id": {
+            "$path": "guide_response.guide_trace_id"
+          },
+          "include_markdown": false
+        },
+        "raw_response_capture": {
+          "bytes_source": "exact_raw_runtime_response_bytes",
+          "capture_order": "before_json_parse",
+          "capture_assertions": [
+            {
+              "field": "snapshot_response_sha256",
+              "predicate": "sha256_of_exact_raw_response_bytes",
+              "expected": null
+            },
+            {
+              "field": "snapshot_id",
+              "predicate": "equals_rendered",
+              "expected": {
+                "$concat": [
+                  "snapshot-",
+                  {
+                    "$sha256_utf8_nul": [
+                      {
+                        "$path": "trial_id"
+                      },
+                      {
+                        "$path": "snapshot_response_sha256"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "ledger_settlement_paths": {
+            "response_sha256": "aionis.snapshot_response_sha256",
+            "content_id": "aionis.snapshot_id"
+          },
+          "required_before_trial_settlement": true
+        },
+        "response_assertions": [
+          {
+            "path": "contract_version",
+            "predicate": "equals_literal",
+            "expected": "aionis_operator_snapshot_result_v1"
+          },
+          {
+            "path": "tenant_id",
+            "predicate": "equals_rendered",
+            "expected": {
+              "$path": "request.tenant_id"
+            }
+          },
+          {
+            "path": "scope",
+            "predicate": "equals_rendered",
+            "expected": {
+              "$path": "request.scope"
+            }
+          },
+          {
+            "path": "operator_snapshot",
+            "predicate": "object",
+            "expected": null
+          },
+          {
+            "path": "markdown",
+            "predicate": "absent",
+            "expected": null
+          }
+        ]
+      },
+      "flight_recorder": {
+        "method": "POST",
+        "route": "/v1/audit/flight-recorder",
+        "request_exact_keys": [
+          "tenant_id",
+          "scope",
+          "guide_trace_id",
+          "run_id",
+          "product_trace",
+          "agent_context",
+          "operator_snapshot",
+          "feedback_result"
+        ],
+        "request_template": {
+          "tenant_id": {
+            "$path": "schedule.scope.tenant_id"
+          },
+          "scope": {
+            "$path": "preclaim.scope"
+          },
+          "guide_trace_id": {
+            "$path": "guide_response.guide_trace_id"
+          },
+          "run_id": {
+            "$path": "trial_id"
+          },
+          "product_trace": {
+            "$path": "measure_request.product_trace"
+          },
+          "agent_context": {
+            "$path": "guide_response.agent_context"
+          },
+          "operator_snapshot": {
+            "$path": "operator_snapshot_response.operator_snapshot"
+          },
+          "feedback_result": {
+            "$path": "feedback_response"
+          }
+        },
+        "raw_response_capture": {
+          "bytes_source": "exact_raw_runtime_response_bytes",
+          "capture_order": "before_json_parse",
+          "capture_assertions": [
+            {
+              "field": "recorder_response_sha256",
+              "predicate": "sha256_of_exact_raw_response_bytes",
+              "expected": null
+            },
+            {
+              "field": "recorder_id",
+              "predicate": "equals_rendered",
+              "expected": {
+                "$concat": [
+                  "recorder-",
+                  {
+                    "$sha256_utf8_nul": [
+                      {
+                        "$path": "trial_id"
+                      },
+                      {
+                        "$path": "recorder_response_sha256"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "ledger_settlement_paths": {
+            "response_sha256": "aionis.recorder_response_sha256",
+            "content_id": "aionis.recorder_id"
+          },
+          "required_before_trial_settlement": true
+        },
+        "response_assertions": [
+          {
+            "path": "contract_version",
+            "predicate": "equals_literal",
+            "expected": "aionis_agent_flight_recorder_result_v1"
+          },
+          {
+            "path": "tenant_id",
+            "predicate": "equals_rendered",
+            "expected": {
+              "$path": "request.tenant_id"
+            }
+          },
+          {
+            "path": "scope",
+            "predicate": "equals_rendered",
+            "expected": {
+              "$path": "request.scope"
+            }
+          },
+          {
+            "path": "agent_flight_recorder",
+            "predicate": "object",
+            "expected": null
+          }
+        ]
+      },
+      "missing_template_policy": "fail_campaign_preflight"
+    }
+  },
   "product_invariants": [
     "golden_product_loop",
     "product_loop",
@@ -34,7 +1503,9 @@
   },
   "verifier": {
     "real_tools": true,
+    "native_tool_calling": true,
     "deterministic_outcome_verifier": true,
+    "outcome_contract": "aionis_bounded_soak_outcome_v1",
     "model_self_report_accepted": false
   },
   "recovery": {

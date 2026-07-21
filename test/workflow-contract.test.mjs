@@ -15,13 +15,15 @@ test("authority CI is a pinned read-only push and pull-request required check", 
   assert.match(CI_WORKFLOW, /^  pull_request:\n    branches:\n      - main$/m);
   assert.doesNotMatch(CI_WORKFLOW, /workflow_dispatch:|schedule:|secrets\.|contents: write|continue-on-error/);
   assert.match(CI_WORKFLOW, /^permissions:\n  contents: read$/m);
-  assertPinnedActions(CI_WORKFLOW, 2);
+  assertPinnedActions(CI_WORKFLOW, 4);
   assert.match(CI_WORKFLOW, /persist-credentials: false/);
   assert.match(CI_WORKFLOW, /npm ci --ignore-scripts/);
   assert.match(CI_WORKFLOW, /npm test/);
   assert.match(CI_WORKFLOW, /npm run -s validate:fixture/);
   assert.match(CI_WORKFLOW, /git diff --exit-code/);
   assert.match(CI_WORKFLOW, /git status --porcelain/);
+  assert.match(CI_WORKFLOW, /macos-lock:[\s\S]*?runs-on: macos-15/);
+  assert.match(CI_WORKFLOW, /macos-lock:[\s\S]*?node --test test\/exclusive-lock\.test\.mjs/);
 });
 
 test("bounded soak workflow is manual-only with read-only default permissions", () => {
