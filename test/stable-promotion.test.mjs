@@ -418,7 +418,7 @@ function createFixture(options = {}) {
   lock.protocol_artifacts.authority_manifest.sha256 = authorityDocument.sha256;
   lock.protocol_artifacts.workload_manifest.sha256 = workloadDocument.sha256;
 
-  const artifactGeneratedAt = "2026-07-21T15:05:00.000Z";
+  const artifactGeneratedAt = "2026-07-22T03:05:00.000Z";
   const releaseTag = `soak-v0.3.12-${AUTHORITY_COMMIT}`;
   const artifactDocumentsByKind = artifactDocuments({ lock, workload, options });
   const artifactPayloads = new Map();
@@ -460,7 +460,7 @@ function createFixture(options = {}) {
   }));
   const soak = {
     schema_version: "aionis_release_bounded_soak_evidence_v1",
-    generated_at: "2026-07-21T15:10:00.000Z",
+    generated_at: "2026-07-22T03:10:00.000Z",
     authority: { decision: "pass", publication_authority: false },
     candidate_publication_receipt: structuredClone(lock.candidate_publication_receipt),
     candidate: {
@@ -508,8 +508,8 @@ function createFixture(options = {}) {
       semantic_retries: 0,
       worker_errors: 0,
       cost_usd: 0.09,
-      started_at: "2026-07-20T14:35:00.000Z",
-      completed_at: "2026-07-20T14:45:00.000Z",
+      started_at: "2026-07-21T02:35:00.000Z",
+      completed_at: "2026-07-21T02:45:00.000Z",
       source_workflow: workflowSource(1, "pilot"),
     },
     waves,
@@ -538,8 +538,8 @@ function createFixture(options = {}) {
         : { aionis: 270, full_history: 540 },
     },
     execution: {
-      started_at: "2026-07-20T15:00:00.000Z",
-      completed_at: "2026-07-21T15:00:00.000Z",
+      started_at: "2026-07-21T03:00:00.000Z",
+      completed_at: "2026-07-22T03:00:00.000Z",
       limits: structuredClone(lock.execution_limits),
       observed: {
         duration_seconds: 86400,
@@ -609,8 +609,8 @@ function createFixture(options = {}) {
         head_sha: AUTHORITY_COMMIT,
         repository: { full_name: "ostinatocc/AionisRuntime-evals" },
         path: options.workflowPathRef ? ".github/workflows/bounded-soak.yml@refs/heads/main" : ".github/workflows/bounded-soak.yml",
-        created_at: "2026-07-20T14:15:00.000Z",
-        updated_at: "2026-07-20T14:55:00.000Z",
+        created_at: "2026-07-21T02:15:00.000Z",
+        updated_at: "2026-07-21T02:55:00.000Z",
       },
       jobs: [{
         id: 101,
@@ -623,8 +623,8 @@ function createFixture(options = {}) {
         labels: ["self-hosted", "linux", "x64", "aionis-soak-persistent"],
         runner_id: 501,
         runner_group_name: "aionis-soak",
-        started_at: "2026-07-20T14:30:00.000Z",
-        completed_at: "2026-07-20T14:50:00.000Z",
+        started_at: "2026-07-21T02:30:00.000Z",
+        completed_at: "2026-07-21T02:50:00.000Z",
       }],
     }],
     ["soak", {
@@ -637,8 +637,8 @@ function createFixture(options = {}) {
         head_sha: AUTHORITY_COMMIT,
         repository: { full_name: "ostinatocc/AionisRuntime-evals" },
         path: options.workflowPathRef ? ".github/workflows/bounded-soak.yml@refs/heads/main" : ".github/workflows/bounded-soak.yml",
-        created_at: "2026-07-20T14:55:00.000Z",
-        updated_at: "2026-07-21T15:20:00.000Z",
+        created_at: "2026-07-21T02:55:00.000Z",
+        updated_at: "2026-07-22T03:20:00.000Z",
       },
       jobs: [{
         id: 201,
@@ -651,8 +651,8 @@ function createFixture(options = {}) {
         labels: ["self-hosted", "linux", "x64", "aionis-soak-persistent"],
         runner_id: 501,
         runner_group_name: "aionis-soak",
-        started_at: options.soakWindowDrift ? "2026-07-20T15:05:00.000Z" : "2026-07-20T14:58:00.000Z",
-        completed_at: "2026-07-21T15:15:00.000Z",
+        started_at: options.soakWindowDrift ? "2026-07-21T03:05:00.000Z" : "2026-07-21T02:58:00.000Z",
+        completed_at: "2026-07-22T03:15:00.000Z",
       }],
     }],
     ["publisher", {
@@ -665,8 +665,8 @@ function createFixture(options = {}) {
         head_sha: AUTHORITY_COMMIT,
         repository: { full_name: "ostinatocc/AionisRuntime-evals" },
         path: options.workflowPathRef ? ".github/workflows/bounded-soak.yml@refs/heads/main" : ".github/workflows/bounded-soak.yml",
-        created_at: "2026-07-20T14:55:00.000Z",
-        updated_at: "2026-07-21T15:20:00.000Z",
+        created_at: "2026-07-21T02:55:00.000Z",
+        updated_at: "2026-07-22T03:20:00.000Z",
       },
       jobs: [{
         id: 202,
@@ -679,8 +679,8 @@ function createFixture(options = {}) {
         labels: ["ubuntu-24.04"],
         runner_id: 502,
         runner_group_name: "GitHub Actions",
-        started_at: "2026-07-21T15:16:00.000Z",
-        completed_at: "2026-07-21T15:19:00.000Z",
+        started_at: "2026-07-22T03:16:00.000Z",
+        completed_at: "2026-07-22T03:19:00.000Z",
       }],
     }],
   ]);
@@ -690,8 +690,8 @@ function createFixture(options = {}) {
     size: entry.bytes,
     digest: options.assetDigestDrift && index === 0 ? `sha256:${"0".repeat(64)}` : `sha256:${entry.sha256}`,
     state: "uploaded",
-    created_at: options.assetWindowDrift && index === 0 ? "2026-07-21T15:15:30.000Z" : "2026-07-21T15:16:30.000Z",
-    updated_at: "2026-07-21T15:18:00.000Z",
+    created_at: options.assetWindowDrift && index === 0 ? "2026-07-22T03:15:30.000Z" : "2026-07-22T03:16:30.000Z",
+    updated_at: "2026-07-22T03:18:00.000Z",
     uploader: "github-actions[bot]",
     download_url: entry.uri,
   }));
@@ -702,8 +702,8 @@ function createFixture(options = {}) {
     draft: false,
     prerelease: true,
     immutable: options.mutableRelease !== true,
-    created_at: "2026-07-21T15:16:10.000Z",
-    published_at: "2026-07-21T15:18:30.000Z",
+    created_at: "2026-07-22T03:16:10.000Z",
+    published_at: "2026-07-22T03:18:30.000Z",
     author: "github-actions[bot]",
   };
   const artifacts = entries.map((entry, index) => ({
@@ -714,10 +714,10 @@ function createFixture(options = {}) {
     size_in_bytes: entry.bytes + 512,
     digest: `sha256:${(index + 1).toString(16).padStart(64, "0")}`,
     expired: options.artifactExpired === true && index === 0,
-    created_at: "2026-07-21T15:06:00.000Z",
-    updated_at: "2026-07-21T15:10:00.000Z",
+    created_at: "2026-07-22T03:06:00.000Z",
+    updated_at: "2026-07-22T03:10:00.000Z",
     expires_at: options.artifactExpired && index === 0
-      ? "2026-07-21T15:11:00.000Z"
+      ? "2026-07-22T03:11:00.000Z"
       : "2026-10-19T15:10:00.000Z",
     workflow_run_id: options.artifactWrongRun && index === 0 ? 3 : 2,
     workflow_run_head_sha: AUTHORITY_COMMIT,
@@ -746,7 +746,7 @@ function verify(fixture) {
     releaseLockPath: fixture.lockPath,
     workflowRunFetcher: async (source) => fixture.workflowRuns.get(source.phase),
     artifactProvenanceFetcher: async () => ({
-      fetched_at: "2026-07-21T15:21:00.000Z",
+      fetched_at: "2026-07-22T03:21:00.000Z",
       release: structuredClone(fixture.release),
       artifacts: structuredClone(fixture.artifacts),
       assets: structuredClone(fixture.assets),
@@ -759,7 +759,7 @@ function workflowEvidence(fixture) {
   return {
     schema_version: "aionis_workflow_run_evidence_v1",
     repository: "ostinatocc/AionisRuntime-evals",
-    fetched_at: "2026-07-21T15:21:00.000Z",
+    fetched_at: "2026-07-22T03:21:00.000Z",
     records: [
       [workflowSource(1, "pilot"), fixture.workflowRuns.get("pilot")],
       [workflowSource(2, "soak"), fixture.workflowRuns.get("soak")],
@@ -775,26 +775,12 @@ function workflowEvidence(fixture) {
   };
 }
 
-test("stable verifier accepts a real annotated-tag, first-parent, no-drift fixture", async () => {
+test("stable verifier blocks a provenance-valid fixture until product invariant authority is frozen", async () => {
   const fixture = createFixture();
-  const result = await verify(fixture);
-  assert.deepEqual(result, {
-    schema_version: "aionis_stable_promotion_verification_v1",
-    ok: true,
-    status: "stable",
-    stable_commit: fixture.stableCommit,
-    authority_commit: AUTHORITY_COMMIT,
-    candidate_tag: "v0.3.12",
-    candidate_commit: fixture.candidateCommit,
-    candidate_digest: "sha256:f40c5a1f14af23674fab5e59414bbe4187a0d56dcf8a2798afd02c1563c4a5d6",
-    expected_previous_latest: {
-      tag: "latest",
-      digest: `sha256:${"d".repeat(64)}`,
-      version: "v0.3.6",
-      commit: "e".repeat(40),
-      platform: "linux/amd64",
-    },
-  });
+  await assert.rejects(
+    () => verify(fixture),
+    /product_invariant_query_contract_unfrozen/,
+  );
 });
 
 test("sanitized workflow evidence supplies exact run/job facts without exposing a token", async () => {
@@ -869,7 +855,10 @@ test("stable verifier verifies the real workflow run and downloaded artifact byt
 });
 
 test("stable verifier binds producer artifacts and publisher assets to the exact run", async () => {
-  await assert.doesNotReject(() => verify(createFixture({ workflowPathRef: true })));
+  await assert.rejects(
+    () => verify(createFixture({ workflowPathRef: true })),
+    /product_invariant_query_contract_unfrozen/,
+  );
   await assert.rejects(() => verify(createFixture({ artifactWrongRun: true })), /workflow ownership/);
   await assert.rejects(() => verify(createFixture({ artifactExpired: true })), /is expired/);
   await assert.rejects(() => verify(createFixture({ artifactNameDrift: true })), /content-addressed .* upload/);

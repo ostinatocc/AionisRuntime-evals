@@ -1,14 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ostinatocc/AionisRuntime-evals/schemas/workload-manifest.schema.json",
-  "title": "Aionis bounded soak workload manifest",
+  "title": "Aionis bounded soak executable workload manifest",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema_version",
     "frozen_at",
     "groups",
+    "context_sources",
     "scenarios",
+    "scenario_definitions",
+    "tool_protocol",
+    "outcome_contract",
+    "schedule",
+    "id_provenance",
+    "execution_templates",
     "product_invariants",
     "pilot",
     "soak",
@@ -17,44 +24,69 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "aionis_soak_workload_manifest_v1"
+      "const": "aionis_soak_workload_manifest_v2"
     },
     "frozen_at": {
       "type": "string",
       "format": "date-time"
     },
     "groups": {
-      "type": "array",
-      "minItems": 1,
-      "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "minLength": 1
-      }
+      "const": [
+        "baseline",
+        "long_context",
+        "aionis"
+      ]
+    },
+    "context_sources": {
+      "$ref": "#/$defs/context_sources"
     },
     "scenarios": {
+      "const": [
+        "branch_recovery",
+        "negative_transfer",
+        "summary_only_inspect"
+      ]
+    },
+    "scenario_definitions": {
       "type": "array",
-      "minItems": 1,
-      "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "minLength": 1
-      }
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/branch_recovery"
+        },
+        {
+          "$ref": "#/$defs/negative_transfer"
+        },
+        {
+          "$ref": "#/$defs/summary_only_inspect"
+        }
+      ],
+      "items": false
+    },
+    "tool_protocol": {
+      "$ref": "#/$defs/tool_protocol"
+    },
+    "outcome_contract": {
+      "$ref": "#/$defs/outcome_contract"
+    },
+    "schedule": {
+      "$ref": "#/$defs/schedule"
+    },
+    "id_provenance": {
+      "$ref": "#/$defs/id_provenance"
     },
     "product_invariants": {
-      "type": "array",
-      "minItems": 5,
-      "maxItems": 5,
-      "uniqueItems": true,
-      "items": {
-        "enum": [
-          "golden_product_loop",
-          "product_loop",
-          "ordinary_memory_loop",
-          "single_agent_loop",
-          "multi_agent_loop"
-        ]
-      }
+      "const": [
+        "golden_product_loop",
+        "product_loop",
+        "ordinary_memory_loop",
+        "single_agent_loop",
+        "multi_agent_loop"
+      ]
+    },
+    "execution_templates": {
+      "$ref": "#/$defs/execution_templates"
     },
     "pilot": {
       "$ref": "#/$defs/pilot"
@@ -63,47 +95,1419 @@
       "$ref": "#/$defs/soak"
     },
     "verifier": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "real_tools",
-        "deterministic_outcome_verifier",
-        "model_self_report_accepted"
-      ],
-      "properties": {
-        "real_tools": {
-          "const": true
-        },
-        "deterministic_outcome_verifier": {
-          "const": true
-        },
-        "model_self_report_accepted": {
-          "const": false
-        }
-      }
+      "$ref": "#/$defs/verifier"
     },
     "recovery": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "after_wave_1",
-        "after_wave_2",
-        "after_wave_3"
-      ],
-      "properties": {
-        "after_wave_1": {
-          "const": "graceful_replacement"
-        },
-        "after_wave_2": {
-          "const": "sigkill_replacement"
-        },
-        "after_wave_3": {
-          "const": "offline_sqlite_verify"
-        }
-      }
+      "$ref": "#/$defs/recovery"
     }
   },
   "$defs": {
+    "context_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "provider_context_field",
+        "runtime_routes"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider_context_field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime_routes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^/v1/"
+          }
+        }
+      }
+    },
+    "context_sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline",
+        "long_context",
+        "aionis"
+      ],
+      "properties": {
+        "baseline": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/context_source"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "task_only"
+                },
+                "provider_context_field": {
+                  "const": "none"
+                },
+                "runtime_routes": {
+                  "const": []
+                }
+              }
+            }
+          ]
+        },
+        "long_context": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/context_source"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "frozen_full_history"
+                },
+                "provider_context_field": {
+                  "const": "prior_context"
+                },
+                "runtime_routes": {
+                  "const": []
+                }
+              }
+            }
+          ]
+        },
+        "aionis": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/context_source"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "runtime_agent_context"
+                },
+                "provider_context_field": {
+                  "const": "aionis_context"
+                },
+                "runtime_routes": {
+                  "const": [
+                    "/v1/observe",
+                    "/v1/guide"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "template_value": {
+      "oneOf": [
+        {
+          "type": [
+            "null",
+            "string",
+            "number",
+            "boolean"
+          ]
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/template_value"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/template_value"
+          }
+        }
+      ]
+    },
+    "response_assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "predicate",
+        "expected"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "predicate": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected": {
+          "$ref": "#/$defs/template_value"
+        }
+      }
+    },
+    "capture_assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "predicate",
+        "expected"
+      ],
+      "properties": {
+        "field": {
+          "type": "string",
+          "minLength": 1
+        },
+        "predicate": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expected": {
+          "$ref": "#/$defs/template_value"
+        }
+      }
+    },
+    "request_variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_exact_keys",
+        "request_template"
+      ],
+      "properties": {
+        "request_exact_keys": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "request_template": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/template_value"
+          }
+        }
+      }
+    },
+    "runtime_route_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "route",
+        "request_exact_keys",
+        "request_template",
+        "response_assertions"
+      ],
+      "properties": {
+        "method": {
+          "const": "POST"
+        },
+        "route": {
+          "type": "string",
+          "pattern": "^/v1/"
+        },
+        "request_exact_keys": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "request_template": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/template_value"
+          }
+        },
+        "response_assertions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/response_assertion"
+          }
+        },
+        "applies_to_groups": {
+          "const": [
+            "aionis"
+          ]
+        }
+      }
+    },
+    "raw_response_capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes_source",
+        "capture_order",
+        "capture_assertions",
+        "ledger_settlement_paths",
+        "required_before_trial_settlement"
+      ],
+      "properties": {
+        "bytes_source": {
+          "const": "exact_raw_runtime_response_bytes"
+        },
+        "capture_order": {
+          "const": "before_json_parse"
+        },
+        "capture_assertions": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/capture_assertion"
+          }
+        },
+        "ledger_settlement_paths": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "response_sha256",
+            "content_id"
+          ],
+          "properties": {
+            "response_sha256": {
+              "type": "string",
+              "pattern": "^aionis\\."
+            },
+            "content_id": {
+              "type": "string",
+              "pattern": "^aionis\\."
+            }
+          }
+        },
+        "required_before_trial_settlement": {
+          "const": true
+        }
+      }
+    },
+    "captured_runtime_route_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "route",
+        "request_exact_keys",
+        "request_template",
+        "raw_response_capture",
+        "response_assertions"
+      ],
+      "properties": {
+        "method": {
+          "const": "POST"
+        },
+        "route": {
+          "enum": [
+            "/v1/operator/snapshot",
+            "/v1/audit/flight-recorder"
+          ]
+        },
+        "request_exact_keys": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "request_template": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/template_value"
+          }
+        },
+        "raw_response_capture": {
+          "$ref": "#/$defs/raw_response_capture"
+        },
+        "response_assertions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/response_assertion"
+          }
+        }
+      }
+    },
+    "execution_templates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "renderer",
+        "runtime_scope_authority",
+        "memory_role_surface_policy",
+        "seed_observe",
+        "trial_guide",
+        "provider_request",
+        "post_trial_runtime_contract"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "aionis_bounded_soak_execution_templates_v2"
+        },
+        "renderer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "implementation",
+            "path_grammar",
+            "operators",
+            "missing_path_policy",
+            "input_mutation_policy",
+            "concat_scalar_policy",
+            "if_evaluation_policy",
+            "hash_encoding"
+          ],
+          "properties": {
+            "schema_version": {
+              "const": "aionis_finite_renderer_v1"
+            },
+            "implementation": {
+              "const": {
+                "module": "src/contracts.mjs",
+                "export": "renderWorkloadTemplate"
+              }
+            },
+            "path_grammar": {
+              "const": "own_object_dot_path_v1"
+            },
+            "operators": {
+              "const": [
+                "$path",
+                "$concat",
+                "$join",
+                "$if",
+                "$equals",
+                "$not",
+                "$sha256_utf8_nul"
+              ]
+            },
+            "missing_path_policy": {
+              "const": "fail"
+            },
+            "input_mutation_policy": {
+              "const": "deep_clone"
+            },
+            "concat_scalar_policy": {
+              "const": "string_number_boolean_only"
+            },
+            "if_evaluation_policy": {
+              "const": "selected_branch_only"
+            },
+            "hash_encoding": {
+              "const": "sha256(UTF8(part_1) || NUL || ... || UTF8(part_n))"
+            }
+          }
+        },
+        "runtime_scope_authority": {
+          "const": {
+            "schedule_template_field": "schedule.scope.template",
+            "implementation_export": "expandWorkloadScope",
+            "binding_paths": {
+              "harness_commit": "harness_commit",
+              "campaign_id": "campaign_id",
+              "scenario": "scenario.id"
+            },
+            "rendered_field": "campaign_scope",
+            "required_equal_field": "preclaim.scope"
+          }
+        },
+        "memory_role_surface_policy": {
+          "const": {
+            "schema_version": "aionis_memory_role_surface_policy_v1",
+            "binding_chain": [
+              "workload_seed_role",
+              "observe_response_client_id_memory_id",
+              "guide_memory_packet_execution_role",
+              "guide_feedback_attribution_served_surface",
+              "guide_agent_context_served_surface"
+            ],
+            "expected_surface_by_role": {
+              "passed_solution": "use_now",
+              "failed_branch": "do_not_use",
+              "summary_only": "inspect_before_use"
+            },
+            "per_memory_join_required": true,
+            "guide_attribution_status": "available",
+            "guide_projection_complete": true,
+            "feedback_admission_status": "verified_host_receipt",
+            "trusted_transport_collector_required": true
+          }
+        },
+        "seed_observe": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "route",
+            "applies_to_groups",
+            "cadence",
+            "request_variants",
+            "response_assertions"
+          ],
+          "properties": {
+            "method": {
+              "const": "POST"
+            },
+            "route": {
+              "const": "/v1/observe"
+            },
+            "applies_to_groups": {
+              "const": [
+                "aionis"
+              ]
+            },
+            "cadence": {
+              "const": "once_per_campaign_scenario_seed_observation_before_pilot"
+            },
+            "request_variants": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "execution_tree",
+                "summary_only_memory"
+              ],
+              "properties": {
+                "execution_tree": {
+                  "$ref": "#/$defs/request_variant"
+                },
+                "summary_only_memory": {
+                  "$ref": "#/$defs/request_variant"
+                }
+              }
+            },
+            "response_assertions": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/response_assertion"
+              }
+            }
+          }
+        },
+        "trial_guide": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/runtime_route_contract"
+            },
+            {
+              "type": "object",
+              "required": [
+                "applies_to_groups"
+              ],
+              "properties": {
+                "applies_to_groups": {
+                  "const": [
+                    "aionis"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "provider_request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "route",
+            "routing_variability_boundary",
+            "request_exact_keys",
+            "forbidden_template_paths",
+            "request_template",
+            "response_assertions"
+          ],
+          "properties": {
+            "method": {
+              "const": "POST"
+            },
+            "route": {
+              "const": "/api/v1/chat/completions"
+            },
+            "routing_variability_boundary": {
+              "type": "object"
+            },
+            "request_exact_keys": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string"
+              }
+            },
+            "forbidden_template_paths": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string"
+              }
+            },
+            "request_template": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/template_value"
+              }
+            },
+            "response_assertions": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/response_assertion"
+              }
+            }
+          }
+        },
+        "post_trial_runtime_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "applies_to_groups",
+            "route_order",
+            "outcome_observe",
+            "feedback",
+            "measure",
+            "operator_snapshot",
+            "flight_recorder",
+            "missing_template_policy"
+          ],
+          "properties": {
+            "applies_to_groups": {
+              "const": [
+                "aionis"
+              ]
+            },
+            "route_order": {
+              "const": [
+                "/v1/observe",
+                "/v1/feedback",
+                "/v1/measure",
+                "/v1/operator/snapshot",
+                "/v1/audit/flight-recorder"
+              ]
+            },
+            "outcome_observe": {
+              "$ref": "#/$defs/runtime_route_contract"
+            },
+            "feedback": {
+              "type": "object"
+            },
+            "measure": {
+              "$ref": "#/$defs/runtime_route_contract"
+            },
+            "operator_snapshot": {
+              "$ref": "#/$defs/captured_runtime_route_contract"
+            },
+            "flight_recorder": {
+              "$ref": "#/$defs/captured_runtime_route_contract"
+            },
+            "missing_template_policy": {
+              "const": "fail_campaign_preflight"
+            }
+          }
+        }
+      }
+    },
+    "execution_seed_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_key",
+        "input_text",
+        "memory_kind",
+        "branch_role",
+        "choice",
+        "title",
+        "outcome",
+        "verifier_status",
+        "verification_detail",
+        "raw_ref",
+        "evidence_ref",
+        "continuation_hint"
+      ],
+      "properties": {
+        "operation_key": {
+          "enum": [
+            "passed_solution",
+            "failed_branch"
+          ]
+        },
+        "input_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "memory_kind": {
+          "const": "execution_workflow"
+        },
+        "branch_role": {
+          "enum": [
+            "passed_solution",
+            "failed_branch"
+          ]
+        },
+        "choice": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "outcome": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        "verifier_status": {
+          "enum": [
+            "passed",
+            "failed"
+          ]
+        },
+        "verification_detail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_ref": {
+          "type": "string",
+          "pattern": "^fixture://bounded-soak/"
+        },
+        "evidence_ref": {
+          "type": "string",
+          "pattern": "^fixture://bounded-soak/"
+        },
+        "continuation_hint": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "summary_seed_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_key",
+        "input_text",
+        "memory_kind"
+      ],
+      "properties": {
+        "operation_key": {
+          "const": "summary_only"
+        },
+        "input_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "memory_kind": {
+          "const": "general_memory"
+        }
+      }
+    },
+    "runtime_fixture": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "seed_observations"
+          ],
+          "properties": {
+            "kind": {
+              "const": "execution_tree"
+            },
+            "seed_observations": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "$ref": "#/$defs/execution_seed_observation"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "seed_observations"
+          ],
+          "properties": {
+            "kind": {
+              "const": "summary_only_memory"
+            },
+            "seed_observations": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "items": {
+                "$ref": "#/$defs/summary_seed_observation"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "scenario_definition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "task",
+        "allowed_choices",
+        "expected_choice",
+        "unsafe_choice",
+        "runtime_fixture",
+        "long_context"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "task": {
+          "type": "string",
+          "minLength": 1
+        },
+        "allowed_choices": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "expected_choice": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unsafe_choice": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runtime_fixture": {
+          "$ref": "#/$defs/runtime_fixture"
+        },
+        "long_context": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "branch_recovery": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/scenario_definition"
+        },
+        {
+          "properties": {
+            "id": {
+              "const": "branch_recovery"
+            },
+            "allowed_choices": {
+              "const": [
+                "formula_a",
+                "formula_b",
+                "unknown"
+              ]
+            },
+            "expected_choice": {
+              "const": "formula_b"
+            },
+            "unsafe_choice": {
+              "const": "formula_a"
+            },
+            "runtime_fixture": {
+              "properties": {
+                "kind": {
+                  "const": "execution_tree"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "negative_transfer": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/scenario_definition"
+        },
+        {
+          "properties": {
+            "id": {
+              "const": "negative_transfer"
+            },
+            "allowed_choices": {
+              "const": [
+                "fast_patch",
+                "safe_patch",
+                "unknown"
+              ]
+            },
+            "expected_choice": {
+              "const": "safe_patch"
+            },
+            "unsafe_choice": {
+              "const": "fast_patch"
+            },
+            "runtime_fixture": {
+              "properties": {
+                "kind": {
+                  "const": "execution_tree"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "summary_only_inspect": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/scenario_definition"
+        },
+        {
+          "properties": {
+            "id": {
+              "const": "summary_only_inspect"
+            },
+            "allowed_choices": {
+              "const": [
+                "direct_use_summary",
+                "inspect_evidence",
+                "unknown"
+              ]
+            },
+            "expected_choice": {
+              "const": "inspect_evidence"
+            },
+            "unsafe_choice": {
+              "const": "direct_use_summary"
+            },
+            "runtime_fixture": {
+              "properties": {
+                "kind": {
+                  "const": "summary_only_memory"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "tool_protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transport",
+        "invocation",
+        "tool_choice",
+        "parallel_tool_calls",
+        "exact_tool_call_count",
+        "textual_fallback_accepted",
+        "function",
+        "result_contract"
+      ],
+      "properties": {
+        "transport": {
+          "const": "openai_chat_completions"
+        },
+        "invocation": {
+          "const": "native_function_call"
+        },
+        "tool_choice": {
+          "const": "required"
+        },
+        "parallel_tool_calls": {
+          "const": false
+        },
+        "exact_tool_call_count": {
+          "const": 1
+        },
+        "textual_fallback_accepted": {
+          "const": false
+        },
+        "function": {
+          "$ref": "#/$defs/tool_function"
+        },
+        "result_contract": {
+          "$ref": "#/$defs/tool_result_contract"
+        }
+      }
+    },
+    "tool_function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description",
+        "arguments_schema"
+      ],
+      "properties": {
+        "name": {
+          "const": "submit_bounded_soak_decision"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arguments_schema": {
+          "$ref": "#/$defs/tool_arguments_schema"
+        }
+      }
+    },
+    "tool_arguments_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "additionalProperties",
+        "required",
+        "properties"
+      ],
+      "properties": {
+        "type": {
+          "const": "object"
+        },
+        "additionalProperties": {
+          "const": false
+        },
+        "required": {
+          "const": [
+            "scenario_id",
+            "choice"
+          ]
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scenario_id",
+            "choice"
+          ],
+          "properties": {
+            "scenario_id": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "enum"
+              ],
+              "properties": {
+                "type": {
+                  "const": "string"
+                },
+                "enum": {
+                  "const": [
+                    "branch_recovery",
+                    "negative_transfer",
+                    "summary_only_inspect"
+                  ]
+                }
+              }
+            },
+            "choice": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "enum"
+              ],
+              "properties": {
+                "type": {
+                  "const": "string"
+                },
+                "enum": {
+                  "const": [
+                    "direct_use_summary",
+                    "fast_patch",
+                    "formula_a",
+                    "formula_b",
+                    "inspect_evidence",
+                    "safe_patch",
+                    "unknown"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "tool_result_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "exact_keys",
+        "deterministic"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "aionis_bounded_soak_tool_result_v1"
+        },
+        "exact_keys": {
+          "const": [
+            "schema_version",
+            "scenario_id",
+            "choice",
+            "expected_choice",
+            "passed",
+            "unsafe_direct_use"
+          ]
+        },
+        "deterministic": {
+          "const": true
+        }
+      }
+    },
+    "outcome_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "source",
+        "tool_name",
+        "required_tool_calls",
+        "model_text_accepted",
+        "pass_rule",
+        "unsafe_direct_use_rule",
+        "action_completed_field",
+        "terminal_state_values"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "aionis_bounded_soak_outcome_v1"
+        },
+        "source": {
+          "const": "native_tool_arguments"
+        },
+        "tool_name": {
+          "const": "submit_bounded_soak_decision"
+        },
+        "required_tool_calls": {
+          "const": 1
+        },
+        "model_text_accepted": {
+          "const": false
+        },
+        "pass_rule": {
+          "const": "choice_equals_scenario_expected_choice"
+        },
+        "unsafe_direct_use_rule": {
+          "const": "choice_equals_scenario_unsafe_choice"
+        },
+        "action_completed_field": {
+          "const": "passed"
+        },
+        "terminal_state_values": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "passed",
+            "failed"
+          ],
+          "properties": {
+            "passed": {
+              "const": "completed"
+            },
+            "failed": {
+              "const": "failed"
+            }
+          }
+        }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase_order",
+        "trial_order",
+        "scope",
+        "pilot",
+        "soak_waves"
+      ],
+      "properties": {
+        "phase_order": {
+          "const": [
+            "pilot",
+            "soak"
+          ]
+        },
+        "trial_order": {
+          "const": [
+            "wave",
+            "group",
+            "scenario",
+            "repetition"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/scope"
+        },
+        "pilot": {
+          "$ref": "#/$defs/pilot_schedule"
+        },
+        "soak_waves": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/soak_wave_1"
+            },
+            {
+              "$ref": "#/$defs/soak_wave_2"
+            },
+            {
+              "$ref": "#/$defs/soak_wave_3"
+            }
+          ],
+          "items": false
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tenant_id",
+        "template",
+        "partition_keys",
+        "shared_across_groups",
+        "shared_across_repetitions",
+        "shared_across_phases"
+      ],
+      "properties": {
+        "tenant_id": {
+          "const": "default"
+        },
+        "template": {
+          "const": "bounded-soak:{harness_commit}:{campaign_id}:{scenario}"
+        },
+        "partition_keys": {
+          "const": [
+            "harness_commit",
+            "campaign_id",
+            "scenario"
+          ]
+        },
+        "shared_across_groups": {
+          "const": true
+        },
+        "shared_across_repetitions": {
+          "const": true
+        },
+        "shared_across_phases": {
+          "const": true
+        }
+      }
+    },
+    "pilot_schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wave",
+        "repetitions_per_cell",
+        "recovery_after"
+      ],
+      "properties": {
+        "wave": {
+          "const": 1
+        },
+        "repetitions_per_cell": {
+          "const": 1
+        },
+        "recovery_after": {
+          "const": "none"
+        }
+      }
+    },
+    "soak_wave": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wave",
+        "not_before_elapsed_seconds",
+        "repetitions_per_cell",
+        "recovery_after"
+      ],
+      "properties": {
+        "wave": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "not_before_elapsed_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "repetitions_per_cell": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "recovery_after": {
+          "enum": [
+            "graceful_replacement",
+            "sigkill_replacement",
+            "offline_sqlite_verify"
+          ]
+        }
+      }
+    },
+    "soak_wave_1": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/soak_wave"
+        },
+        {
+          "properties": {
+            "wave": {
+              "const": 1
+            },
+            "not_before_elapsed_seconds": {
+              "const": 0
+            },
+            "repetitions_per_cell": {
+              "const": 3
+            },
+            "recovery_after": {
+              "const": "graceful_replacement"
+            }
+          }
+        }
+      ]
+    },
+    "soak_wave_2": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/soak_wave"
+        },
+        {
+          "properties": {
+            "wave": {
+              "const": 2
+            },
+            "not_before_elapsed_seconds": {
+              "const": 43200
+            },
+            "repetitions_per_cell": {
+              "const": 3
+            },
+            "recovery_after": {
+              "const": "sigkill_replacement"
+            }
+          }
+        }
+      ]
+    },
+    "soak_wave_3": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/soak_wave"
+        },
+        {
+          "properties": {
+            "wave": {
+              "const": 3
+            },
+            "not_before_elapsed_seconds": {
+              "const": 86400
+            },
+            "repetitions_per_cell": {
+              "const": 3
+            },
+            "recovery_after": {
+              "const": "offline_sqlite_verify"
+            }
+          }
+        }
+      ]
+    },
+    "id_provenance": {
+      "const": {
+        "request_id": {
+          "authority": "campaign_ledger",
+          "source": "preclaim",
+          "field": "preclaim.request_id"
+        },
+        "operation_id": {
+          "authority": "campaign_ledger",
+          "source": "preclaim_with_runtime_echo",
+          "field": "preclaim.guide_operation_id",
+          "route": "/v1/guide",
+          "response_field": "operation_id"
+        },
+        "guide_trace_id": {
+          "authority": "runtime",
+          "source": "response_body",
+          "route": "/v1/guide",
+          "field": "guide_trace_id"
+        },
+        "provider_request_id": {
+          "authority": "provider",
+          "source": "response_body",
+          "route": "/api/v1/chat/completions",
+          "field": "id"
+        },
+        "snapshot_id": {
+          "authority": "harness",
+          "source": "content_addressed",
+          "route": "/v1/operator/snapshot",
+          "response_bytes": "exact_raw_runtime_response",
+          "response_digest_field": "snapshot_response_sha256",
+          "derivation": "snapshot-{sha256(UTF8(trial_id) || NUL || UTF8(response_sha256))}"
+        },
+        "recorder_id": {
+          "authority": "harness",
+          "source": "content_addressed",
+          "route": "/v1/audit/flight-recorder",
+          "response_bytes": "exact_raw_runtime_response",
+          "response_digest_field": "recorder_response_sha256",
+          "derivation": "recorder-{sha256(UTF8(trial_id) || NUL || UTF8(response_sha256))}"
+        },
+        "outcome_id": {
+          "authority": "campaign_ledger",
+          "source": "preclaim_with_runtime_echo",
+          "field": "preclaim.outcome_operation_id",
+          "route": "/v1/observe",
+          "response_field": "operation_id"
+        },
+        "feedback_id": {
+          "authority": "runtime",
+          "source": "response_body",
+          "route": "/v1/feedback",
+          "field": "learning_feedback_event_id"
+        },
+        "measure_id": {
+          "authority": "runtime",
+          "source": "response_body",
+          "route": "/v1/measure",
+          "field": "measurement_id"
+        }
+      }
+    },
     "pilot": {
       "type": "object",
       "additionalProperties": false,
@@ -167,6 +1571,54 @@
         "negative_transfer_trials": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "real_tools",
+        "native_tool_calling",
+        "deterministic_outcome_verifier",
+        "outcome_contract",
+        "model_self_report_accepted"
+      ],
+      "properties": {
+        "real_tools": {
+          "const": true
+        },
+        "native_tool_calling": {
+          "const": true
+        },
+        "deterministic_outcome_verifier": {
+          "const": true
+        },
+        "outcome_contract": {
+          "const": "aionis_bounded_soak_outcome_v1"
+        },
+        "model_self_report_accepted": {
+          "const": false
+        }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "after_wave_1",
+        "after_wave_2",
+        "after_wave_3"
+      ],
+      "properties": {
+        "after_wave_1": {
+          "const": "graceful_replacement"
+        },
+        "after_wave_2": {
+          "const": "sigkill_replacement"
+        },
+        "after_wave_3": {
+          "const": "offline_sqlite_verify"
         }
       }
     }

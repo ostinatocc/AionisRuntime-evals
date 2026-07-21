@@ -100,7 +100,7 @@
     },
     "workload_manifest": {
       "source_path": "fixtures/v0.3.12/workload-manifest.json",
-      "sha256": "5c0bb09291ed07e7df6c123f87c282352a685d496c86a9754f8de6ffe05d47c0"
+      "sha256": "a092131e7a8803ed88281bc953a20957072ae551ef049dab8101c1084baa035e"
     }
   },
   "artifact_contract": {

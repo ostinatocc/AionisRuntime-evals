@@ -1251,7 +1251,7 @@ export async function verifyStablePromotion({
     `docs/releases/${lock.candidate.tag}.md`,
     `docs/releases/${stableTag}.md`,
   ]);
-  const previousLatest = validateCandidatePublication(publication.value, lock);
+  validateCandidatePublication(publication.value, lock);
   assertCandidateAnnotatedTag(resolvedRuntimeRoot, publication.value);
   assertFirstParent(resolvedRuntimeRoot, lock.candidate.commit, stableCommit);
   assertPostCandidateAllowlist(resolvedRuntimeRoot, lock.candidate.commit, stableCommit, allowedReleaseFiles);
@@ -1319,15 +1319,10 @@ export async function verifyStablePromotion({
     fail("artifact manifest timestamps violate causal order");
   }
 
-  return {
-    schema_version: "aionis_stable_promotion_verification_v1",
-    ok: true,
-    status: "stable",
-    stable_commit: stableCommit,
-    authority_commit: resolvedAuthorityCommit,
-    candidate_tag: lock.candidate.tag,
-    candidate_commit: lock.candidate.commit,
-    candidate_digest: lock.candidate.digest,
-    expected_previous_latest: previousLatest,
-  };
+  // The current workload freezes five end-to-end product-invariant names but
+  // not executable queries, ordered bindings, result canonicalization, or pass
+  // predicates. Arbitrary well-formed query/result digests therefore cannot
+  // authorize a stable release, even when every workflow and asset provenance
+  // check above is valid.
+  fail("stable promotion is blocked: product_invariant_query_contract_unfrozen");
 }
