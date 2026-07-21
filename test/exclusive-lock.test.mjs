@@ -160,6 +160,14 @@ test("same-process reads and reentrant attempts cannot release the kernel lock",
   const raw = fs.readFileSync(lockPath);
   assert.equal(raw.subarray(0, 16).toString("ascii"), "SQLite format 3\0");
   assert.throws(() => acquireExclusiveLock(lockPath), errorCode("LOCK_HELD"));
+  if (process.platform === "linux") {
+    const reader = new DatabaseSync(lockPath, { readOnly: true });
+    try {
+      reader.prepare("SELECT name FROM sqlite_schema ORDER BY name").all();
+    } finally {
+      reader.close();
+    }
+  }
 
   const blocked = attemptLockInChild(lockPath);
   assert.equal(blocked.status, 1, blocked.stdout);

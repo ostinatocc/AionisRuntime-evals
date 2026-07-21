@@ -14,10 +14,11 @@ GitHub-side deployment protection:
 These are current external controls, not permissions granted by workflow YAML.
 They do not make either executable path complete. The paid producer additionally
 requires a dedicated self-hosted runner labelled `aionis-soak-persistent` with
-a persistent Runtime volume. Provider values must remain absent from repository
-and organization scope and must not be added to an environment until the paid
-executor and all admission pre-unblock authorities are implemented and
-independently reviewed.
+a persistent Runtime volume. A Linux runner must also provide the trusted
+util-linux `flock` capability required by the campaign lock boundary. Provider
+values must remain absent from repository and organization scope and must not be
+added to an environment until the paid executor and all admission pre-unblock
+authorities are implemented and independently reviewed.
 
 The current scaffold intentionally contains no provider executor and references
 no provider values. Therefore protected pilot/soak preflight always terminates

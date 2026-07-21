@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
@@ -9,6 +10,9 @@ import { pathToFileURL } from "node:url";
 const LOCK_SCHEMA = "aionis_exclusive_lock_v2";
 const OWNER_TOKEN_RE = /^[a-f0-9]{64}$/u;
 const FILE_MODE = 0o600;
+const LINUX_FLOCK_CANDIDATES = Object.freeze(["/usr/bin/flock", "/bin/flock"]);
+const LINUX_FLOCK_CONFLICT_EXIT = 73;
+const LINUX_FLOCK_TIMEOUT_MS = 5000;
 const HANDLE_STATE = new WeakMap();
 const PROCESS_LOCK_REGISTRY_KEY = Symbol.for("aionis.exclusive-lock.active-paths.v2");
 const PROCESS_LOCK_PATHS = globalThis[PROCESS_LOCK_REGISTRY_KEY] instanceof Set
@@ -104,6 +108,131 @@ function lstatIfPresent(target) {
 
 function sameFile(left, right) {
   return left.dev === right.dev && left.ino === right.ino;
+}
+
+function trustedLinuxFlockPath() {
+  for (const candidate of LINUX_FLOCK_CANDIDATES) {
+    try {
+      const resolved = fs.realpathSync(candidate);
+      const stat = fs.statSync(resolved);
+      if (stat.isFile() && (stat.mode & 0o111) !== 0 && (stat.mode & 0o022) === 0) return resolved;
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw lockError("LOCK_UNSUPPORTED", `cannot validate Linux flock helper: ${candidate}`, error);
+      }
+    }
+  }
+  throw lockError(
+    "LOCK_UNSUPPORTED",
+    "Linux lock authority requires a non-group/world-writable util-linux flock at /usr/bin/flock or /bin/flock",
+  );
+}
+
+function runLinuxFlock(flock, descriptor) {
+  const result = spawnSync(
+    flock,
+    ["-x", "-n", "-E", String(LINUX_FLOCK_CONFLICT_EXIT), "3"],
+    {
+      env: { PATH: "/usr/bin:/bin", LC_ALL: "C" },
+      stdio: ["ignore", "ignore", "pipe", descriptor],
+      encoding: "utf8",
+      timeout: LINUX_FLOCK_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+      maxBuffer: 4096,
+    },
+  );
+  if (result.error) {
+    throw lockError("LOCK_UNSUPPORTED", "Linux flock helper could not execute", result.error);
+  }
+  if (!Number.isInteger(result.status)) {
+    throw lockError("LOCK_IO", `Linux flock helper terminated without an exit status: ${result.signal ?? "unknown"}`);
+  }
+  return { status: result.status, stderr: (result.stderr ?? "").slice(0, 1024) };
+}
+
+function openLinuxLockDescriptor(absolute, expectedStat) {
+  let descriptor;
+  try {
+    descriptor = fs.openSync(
+      absolute,
+      fs.constants.O_RDWR | (fs.constants.O_NOFOLLOW ?? 0),
+    );
+    const opened = fs.fstatSync(descriptor);
+    if (!opened.isFile() || !sameFile(opened, expectedStat)) {
+      throw lockError("LOCK_OWNERSHIP_LOST", `Linux flock descriptor changed inode: ${absolute}`);
+    }
+    exactMode(opened, FILE_MODE, "Linux flock descriptor");
+    return descriptor;
+  } catch (error) {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+    if (error instanceof ExclusiveLockError) throw error;
+    throw lockError("LOCK_IO", `cannot open Linux flock descriptor: ${absolute}`, error);
+  }
+}
+
+function acquireLinuxKernelLock(absolute, expectedStat) {
+  const flock = trustedLinuxFlockPath();
+  const descriptor = openLinuxLockDescriptor(absolute, expectedStat);
+  try {
+    const acquired = runLinuxFlock(flock, descriptor);
+    if (acquired.status === LINUX_FLOCK_CONFLICT_EXIT) {
+      throw lockError("LOCK_HELD", `lock is held by another live process: ${absolute}`);
+    }
+    if (acquired.status !== 0) {
+      throw lockError(
+        "LOCK_UNSUPPORTED",
+        `Linux flock helper failed with exit ${acquired.status}: ${JSON.stringify(acquired.stderr)}`,
+      );
+    }
+
+    // flock(2) locks are attached to the inherited open-file-description. The
+    // short-lived helper sets the lock on fd 3; after it exits, this parent fd
+    // must still exclude a separately opened description. Verify that property
+    // for every acquisition instead of trusting platform or filesystem labels.
+    const contender = openLinuxLockDescriptor(absolute, expectedStat);
+    let verification;
+    try {
+      verification = runLinuxFlock(flock, contender);
+    } finally {
+      fs.closeSync(contender);
+    }
+    if (verification.status !== LINUX_FLOCK_CONFLICT_EXIT) {
+      throw lockError(
+        "LOCK_UNSUPPORTED",
+        `Linux flock retention self-check failed with exit ${verification.status}: ${JSON.stringify(verification.stderr)}`,
+      );
+    }
+    return { descriptor, expectedStat, released: false };
+  } catch (error) {
+    fs.closeSync(descriptor);
+    throw error;
+  }
+}
+
+function releaseLinuxKernelLock(authority) {
+  if (authority === null || authority.released) return false;
+  let failure = null;
+  try {
+    const opened = fs.fstatSync(authority.descriptor);
+    if (!opened.isFile() || !sameFile(opened, authority.expectedStat)) {
+      failure = lockError("LOCK_OWNERSHIP_LOST", "Linux flock descriptor changed before release");
+    }
+  } catch (error) {
+    failure = error instanceof ExclusiveLockError
+      ? error
+      : lockError("LOCK_IO", "cannot verify Linux flock descriptor before release", error);
+  } finally {
+    fs.closeSync(authority.descriptor);
+    authority.released = true;
+  }
+  if (failure) throw failure;
+  return true;
+}
+
+function acquirePlatformKernelLock(absolute, expectedStat) {
+  if (process.platform === "linux") return acquireLinuxKernelLock(absolute, expectedStat);
+  if (process.platform === "darwin") return null;
+  throw lockError("LOCK_UNSUPPORTED", `exclusive lock authority is not implemented on ${process.platform}`);
 }
 
 function preparePrivateDatabase(absolute, parent) {
@@ -231,7 +360,7 @@ function acquireDatabaseLock(absolute, expectedStat, metadata) {
   try {
     const location = pathToFileURL(absolute);
     location.searchParams.set("mode", "rwc");
-    location.searchParams.set("vfs", "unix-flock");
+    if (process.platform === "darwin") location.searchParams.set("vfs", "unix-flock");
     database = new DatabaseSync(location, { timeout: 0 });
     assertPathOwnership(absolute, expectedStat);
     database.exec("PRAGMA busy_timeout = 0; PRAGMA journal_mode = DELETE; PRAGMA synchronous = FULL; PRAGMA trusted_schema = OFF");
@@ -266,17 +395,21 @@ function acquireDatabaseLock(absolute, expectedStat, metadata) {
     closeQuietly(database, transactionStarted);
     if (error instanceof ExclusiveLockError) throw error;
     if (sqliteBusy(error)) throw lockError("LOCK_HELD", `lock is held by another live process: ${absolute}`, error);
+    if (/\bno such vfs\b/iu.test(error?.message ?? "")) {
+      throw lockError("LOCK_UNSUPPORTED", `required SQLite kernel-lock VFS is unavailable: ${absolute}`, error);
+    }
     throw lockError("LOCK_MALFORMED", `lock database could not establish its transaction authority: ${absolute}`, error);
   }
 }
 
-function makeHandle(absolute, parent, expectedStat, database, metadata) {
+function makeHandle(absolute, parent, expectedStat, database, metadata, kernelAuthority) {
   const state = {
     absolute,
     parent,
     expectedStat,
     database,
     metadata,
+    kernelAuthority,
     released: false,
   };
   const publicMetadata = Object.freeze({ ...metadata });
@@ -317,6 +450,11 @@ function releaseState(state) {
     } catch (error) {
       failure ??= lockError("LOCK_IO", `lock database could not be closed: ${state.absolute}`, error);
     }
+    try {
+      releaseLinuxKernelLock(state.kernelAuthority);
+    } catch (error) {
+      failure ??= error;
+    }
     state.released = true;
     PROCESS_LOCK_PATHS.delete(state.absolute);
     try {
@@ -336,8 +474,10 @@ export function acquireExclusiveLock(value) {
   }
   PROCESS_LOCK_PATHS.add(resolved.absolute);
   const metadata = createMetadata();
+  let kernelAuthority = null;
   try {
     const expectedStat = preparePrivateDatabase(resolved.absolute, resolved.parent);
+    kernelAuthority = acquirePlatformKernelLock(resolved.absolute, expectedStat);
     const authority = acquireDatabaseLock(resolved.absolute, expectedStat, metadata);
     return makeHandle(
       resolved.absolute,
@@ -345,10 +485,23 @@ export function acquireExclusiveLock(value) {
       expectedStat,
       authority.database,
       metadata,
+      kernelAuthority,
     );
   } catch (error) {
+    let failure = error;
+    if (kernelAuthority !== null) {
+      try {
+        releaseLinuxKernelLock(kernelAuthority);
+      } catch (releaseError) {
+        failure = lockError(
+          "LOCK_IO",
+          `Linux kernel-lock helper could not be released after acquisition failure: ${resolved.absolute}`,
+          new AggregateError([error, releaseError]),
+        );
+      }
+    }
     PROCESS_LOCK_PATHS.delete(resolved.absolute);
-    throw error;
+    throw failure;
   }
 }
 

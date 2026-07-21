@@ -13,6 +13,10 @@
   resistance. Paid dispatch remains forbidden until a protected non-rollback
   monotonic head and run-scoped singleton reject revision ABA, directory replay,
   and duplicate campaign creation.
+- Linux execution requires a trusted non-group/world-writable util-linux
+  `flock` at `/usr/bin/flock` or `/bin/flock`. Lock capability and inherited-FD
+  retention are checked on every acquisition; missing or incompatible support
+  fails closed and never falls back to POSIX or stale-marker locking.
 - Candidate commit, image digest, models and all budgets come from the committed
   release lock; workflow inputs cannot override them.
 - Semantic retries and model/provider fallback are forbidden.

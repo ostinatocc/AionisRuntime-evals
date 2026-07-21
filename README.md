@@ -49,12 +49,17 @@ future executor. Within a non-rollback campaign directory, it freezes all 90
 trial identities and operation preclaims before a provider request, binds the
 raw lock/authority/workload hashes, checkpoints the provider boundary before
 and after dispatch, enforces a persisted pilot admission before soak, and
-admits soak waves only in order. Its envelope and
-lock are `0600` inside a `0700` directory; updates use a persistent private
-SQLite lock database held by `BEGIN IMMEDIATE` through SQLite's `unix-flock`
-VFS, monotonic revision/CAS, atomic rename and directory sync. The kernel
-releases the transaction lock after SIGKILL; no PID-liveness guess or
-stale-marker deletion can grant ownership. A
+admits soak waves only in order. Its envelope and lock are `0600` inside a
+`0700` directory; updates use a persistent private SQLite lock database,
+monotonic revision/CAS, atomic rename and directory sync. On macOS the SQLite
+transaction uses the `unix-flock` VFS. On Linux, where that optional VFS is not
+normally compiled, a trusted non-group/world-writable util-linux `flock` places
+the kernel lock on a parent-owned inherited file description; every acquisition
+uses a second independently opened descriptor to prove the lock remains held
+after the short-lived helper exits. Missing or incompatible lock support fails
+closed—there is no fallback to POSIX `unix`, `unix-excl`, or stale dot-file
+locking. Closing the authority descriptor or SIGKILL releases the kernel lock;
+no PID-liveness guess or stale-marker deletion can grant ownership. A
 crash after dispatch is explicitly ambiguous and never auto-resends the paid
 request.
 This is not yet complete paid-dispatch authority. The local envelope CAS does
