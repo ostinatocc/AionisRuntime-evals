@@ -6,38 +6,18 @@ import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import * as campaignLedger from "../src/campaign-ledger.mjs";
 import {
-  beginCampaignSoak,
-  beginCampaignWave,
-  claimCampaignSeed,
-  claimCampaignTrial,
-  completeCampaignTrial,
-  createCampaignLedger,
-  inspectCampaignOfflineSqliteEvidence,
-  markCampaignSeedRuntimeDispatch,
-  markCampaignTrialProviderDispatch,
-  prepareCampaignTrialProviderRequest,
-  readCampaignLedger,
-  readCampaignRecoveryExpectation,
-  readCampaignTrialPreparedProviderRequest,
-  recordCampaignFinalSoakAdmission,
-  recordCampaignPilotAdmission,
-  recordCampaignSeedRuntimeResponse,
-  recordCampaignTrialGuideResponse,
-  recordCampaignTrialPostTrialResponse,
-  recordCampaignTrialProviderResponse,
-  recordCampaignTrialProviderRetryableHttpResponse,
-  recordCampaignWaveAdmission,
-  renderCampaignTrialGuideRequest,
-  renderCampaignTrialPostTrialRequest,
-  replayCampaignSeedRuntimeDispatch,
-  settleCampaignTrial,
-} from "../src/campaign-ledger.mjs";
+  campaignHeadAuthorityInfo,
+  openCampaignHeadAuthority,
+  provisionCampaignHeadAuthority,
+} from "../src/campaign-head-authority.mjs";
 import { putEvidenceJsonBody } from "../src/evidence-cas.mjs";
 import { acquireExclusiveLock } from "../src/exclusive-lock.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MODULE_URL = pathToFileURL(path.join(ROOT, "src/campaign-ledger.mjs")).href;
+const HEAD_AUTHORITY_MODULE_URL = pathToFileURL(path.join(ROOT, "src/campaign-head-authority.mjs")).href;
 const RELEASE_LOCK_RAW = fs.readFileSync(path.join(ROOT, "config/v0.3.12-release-lock.json"));
 const BASE_RELEASE_LOCK = JSON.parse(RELEASE_LOCK_RAW);
 const AUTHORITY_RAW = fs.readFileSync(path.join(ROOT, "fixtures/v0.3.12/authority-manifest.json"));
@@ -100,6 +80,59 @@ function source(phase, runId) {
 function temporaryDirectory(label) {
   return fs.mkdtempSync(path.join(os.tmpdir(), `aionis-${label}-`));
 }
+
+const campaignAuthorities = new Map();
+
+function bindCampaignAuthority(directory, authority = null) {
+  const root = path.resolve(directory);
+  const selected = authority ?? provisionCampaignHeadAuthority({
+    directory: temporaryDirectory("campaign-head-authority"),
+  });
+  campaignAuthorities.set(root, selected);
+  return selected;
+}
+
+function campaignAuthority(directory) {
+  const root = path.resolve(directory);
+  return campaignAuthorities.get(root) ?? bindCampaignAuthority(root);
+}
+
+function protectedCall(name, options) {
+  return campaignLedger[name]({
+    ...options,
+    headAuthority: options.headAuthority ?? campaignAuthority(options.directory),
+  });
+}
+
+const beginCampaignSoak = (options) => protectedCall("beginCampaignSoak", options);
+const beginCampaignWave = (options) => protectedCall("beginCampaignWave", options);
+const auditCampaignLedger = (options) => protectedCall("auditCampaignLedger", options);
+const claimCampaignSeed = (options) => protectedCall("claimCampaignSeed", options);
+const claimCampaignTrial = (options) => protectedCall("claimCampaignTrial", options);
+const completeCampaignTrial = (options) => protectedCall("completeCampaignTrial", options);
+const createCampaignLedger = (options) => protectedCall("createCampaignLedger", options);
+const inspectCampaignOfflineSqliteEvidence = (options) => protectedCall("inspectCampaignOfflineSqliteEvidence", options);
+const markCampaignSeedRuntimeDispatch = (options) => protectedCall("markCampaignSeedRuntimeDispatch", options);
+const markCampaignTrialProviderDispatch = (options) => protectedCall("markCampaignTrialProviderDispatch", options);
+const prepareCampaignTrialProviderRequest = (options) => protectedCall("prepareCampaignTrialProviderRequest", options);
+const readCampaignLedger = (options) => protectedCall("readCampaignLedger", options);
+const readCampaignRecoveryExpectation = (options) => protectedCall("readCampaignRecoveryExpectation", options);
+const readCampaignTrialPreparedProviderRequest = (options) => protectedCall("readCampaignTrialPreparedProviderRequest", options);
+const recordCampaignFinalSoakAdmission = (options) => protectedCall("recordCampaignFinalSoakAdmission", options);
+const recordCampaignPilotAdmission = (options) => protectedCall("recordCampaignPilotAdmission", options);
+const recordCampaignSeedRuntimeResponse = (options) => protectedCall("recordCampaignSeedRuntimeResponse", options);
+const recordCampaignTrialGuideResponse = (options) => protectedCall("recordCampaignTrialGuideResponse", options);
+const recordCampaignTrialPostTrialResponse = (options) => protectedCall("recordCampaignTrialPostTrialResponse", options);
+const recordCampaignTrialProviderResponse = (options) => protectedCall("recordCampaignTrialProviderResponse", options);
+const recordCampaignTrialProviderRetryableHttpResponse = (options) => protectedCall(
+  "recordCampaignTrialProviderRetryableHttpResponse",
+  options,
+);
+const recordCampaignWaveAdmission = (options) => protectedCall("recordCampaignWaveAdmission", options);
+const renderCampaignTrialGuideRequest = (options) => protectedCall("renderCampaignTrialGuideRequest", options);
+const renderCampaignTrialPostTrialRequest = (options) => protectedCall("renderCampaignTrialPostTrialRequest", options);
+const replayCampaignSeedRuntimeDispatch = (options) => protectedCall("replayCampaignSeedRuntimeDispatch", options);
+const settleCampaignTrial = (options) => protectedCall("settleCampaignTrial", options);
 
 function createUnseeded(directory = temporaryDirectory("campaign-ledger"), overrides = {}) {
   const ledger = createCampaignLedger({
@@ -853,8 +886,10 @@ function runChild(script, env) {
 function spawnClaim(directory, trialId, expectedRevision) {
   const script = `
     const { claimCampaignTrial } = await import(process.env.MODULE_URL);
+    const { openCampaignHeadAuthority } = await import(process.env.HEAD_AUTHORITY_MODULE_URL);
+    const headAuthority = openCampaignHeadAuthority({ directory: process.env.HEAD_AUTHORITY_DIRECTORY });
     try {
-      const result = claimCampaignTrial({ directory: process.env.DIRECTORY, expectedRevision: Number(process.env.EXPECTED_REVISION), trialId: process.env.TRIAL_ID });
+      const result = claimCampaignTrial({ headAuthority, directory: process.env.DIRECTORY, expectedRevision: Number(process.env.EXPECTED_REVISION), trialId: process.env.TRIAL_ID });
       process.stdout.write(JSON.stringify({ revision: result.ledger.revision, request_id: result.preclaim.request_id }));
     } catch (error) {
       process.stderr.write(error.message);
@@ -866,9 +901,59 @@ function spawnClaim(directory, trialId, expectedRevision) {
     env: {
       ...process.env,
       MODULE_URL,
+      HEAD_AUTHORITY_MODULE_URL,
+      HEAD_AUTHORITY_DIRECTORY: campaignHeadAuthorityInfo(campaignAuthority(directory)).directory,
       DIRECTORY: directory,
       TRIAL_ID: trialId,
       EXPECTED_REVISION: String(expectedRevision),
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+  });
+}
+
+function spawnCreation(directory, authorityDirectory, pilotSource = source("pilot", 9001)) {
+  const script = `
+    const { createCampaignLedger } = await import(process.env.MODULE_URL);
+    const { openCampaignHeadAuthority } = await import(process.env.HEAD_AUTHORITY_MODULE_URL);
+    const headAuthority = openCampaignHeadAuthority({ directory: process.env.HEAD_AUTHORITY_DIRECTORY });
+    const bytes = (key) => Buffer.from(process.env[key], "base64");
+    try {
+      const ledger = createCampaignLedger({
+        headAuthority,
+        directory: process.env.DIRECTORY,
+        harnessCommit: process.env.HARNESS_COMMIT,
+        releaseLockSource: bytes("RELEASE_LOCK_SOURCE"),
+        authoritySource: bytes("AUTHORITY_SOURCE"),
+        workloadSource: bytes("WORKLOAD_SOURCE"),
+        pilotSource: JSON.parse(process.env.PILOT_SOURCE),
+      });
+      process.stdout.write(JSON.stringify({ campaign_id: ledger.campaign_id, generation: ledger.authority_head.generation }));
+    } catch (error) {
+      process.stderr.write(error.message);
+      process.exitCode = 1;
+    }
+  `;
+  const sources = contractSources();
+  const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+    cwd: ROOT,
+    env: {
+      ...process.env,
+      MODULE_URL,
+      HEAD_AUTHORITY_MODULE_URL,
+      HEAD_AUTHORITY_DIRECTORY: authorityDirectory,
+      DIRECTORY: directory,
+      HARNESS_COMMIT,
+      RELEASE_LOCK_SOURCE: sources.releaseLockSource.toString("base64"),
+      AUTHORITY_SOURCE: sources.authoritySource.toString("base64"),
+      WORKLOAD_SOURCE: sources.workloadSource.toString("base64"),
+      PILOT_SOURCE: JSON.stringify(pilotSource),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -1189,13 +1274,17 @@ test("provider checkpoints distinguish safe-to-send, ambiguous, and resumable st
   assert.equal(readCampaignLedger({ directory }).trials[0].status, "provider_responded");
   const script = `
     const { readCampaignLedger, completeCampaignTrial } = await import(process.env.MODULE_URL);
-    const loaded = readCampaignLedger({ directory: process.env.DIRECTORY });
+    const { openCampaignHeadAuthority } = await import(process.env.HEAD_AUTHORITY_MODULE_URL);
+    const headAuthority = openCampaignHeadAuthority({ directory: process.env.HEAD_AUTHORITY_DIRECTORY });
+    const loaded = readCampaignLedger({ headAuthority, directory: process.env.DIRECTORY });
     if (loaded.trials[0].status !== "provider_responded") throw new Error("provider response was not resumable");
-    const next = completeCampaignTrial({ directory: process.env.DIRECTORY, expectedRevision: loaded.revision, trialId: loaded.trials[0].trial_id });
+    const next = completeCampaignTrial({ headAuthority, directory: process.env.DIRECTORY, expectedRevision: loaded.revision, trialId: loaded.trials[0].trial_id });
     process.stdout.write(JSON.stringify({ revision: next.revision, status: next.trials[0].status }));
   `;
   const child = runChild(script, {
     MODULE_URL,
+    HEAD_AUTHORITY_MODULE_URL,
+    HEAD_AUTHORITY_DIRECTORY: campaignHeadAuthorityInfo(campaignAuthority(directory)).directory,
     DIRECTORY: directory,
   });
   assert.equal(child.status, 0, child.stderr);
@@ -1688,7 +1777,10 @@ test("stable canonical receipt IDs, tamper checks, ACL, live locks, and CAS all 
     expectedRevision: claimed.ledger.revision,
     trialId: first.trial_id,
   });
-  const lock = path.join(directory, ".campaign-ledger.lock");
+  const lock = path.join(
+    campaignHeadAuthorityInfo(campaignAuthority(directory)).directory,
+    ".campaign-authority.lock",
+  );
   const heldLock = acquireExclusiveLock(lock);
   try {
     assert.throws(() => markCampaignTrialProviderDispatch({
@@ -1700,7 +1792,7 @@ test("stable canonical receipt IDs, tamper checks, ACL, live locks, and CAS all 
   } finally {
     heldLock.release();
   }
-  assert.equal(fs.existsSync(lock), true, "the persistent SQLite lock authority must remain after release");
+  assert.equal(fs.existsSync(lock), true, "the protected authority kernel lock must remain after release");
 
   const envelopePath = path.join(directory, "campaign-ledger.json");
   fs.chmodSync(envelopePath, 0o644);
@@ -1710,7 +1802,10 @@ test("stable canonical receipt IDs, tamper checks, ACL, live locks, and CAS all 
   envelope.payload.candidate.commit = "b".repeat(40);
   envelope.payload_sha256 = hash(Buffer.from(canonical(envelope.payload)));
   fs.writeFileSync(envelopePath, `${JSON.stringify(envelope, null, 2)}\n`, { mode: 0o600 });
-  assert.throws(() => readCampaignLedger({ directory }), /candidate release-lock binding/);
+  assert.throws(
+    () => readCampaignLedger({ directory }),
+    /candidate release-lock binding|protected-head binding mismatch/,
+  );
 
   const ordered = { z: 1, a: { y: 2, b: 3 } };
   const reordered = { a: { b: 3, y: 2 }, z: 1 };
@@ -1724,14 +1819,139 @@ test("two real processes racing on one revision produce exactly one durable clai
     spawnClaim(directory, ledger.trials[0].trial_id, ledger.revision),
   ]);
   assert.deepEqual(results.map((result) => result.code).sort(), [0, 1]);
-  assert.equal(results.some((result) => /lock acquisition failed|CAS mismatch/.test(result.stderr)), true);
+  assert.equal(
+    results.some((result) => /lock (?:acquisition failed|is held)|CAS mismatch/.test(result.stderr)),
+    true,
+    JSON.stringify(results),
+  );
   const recovered = readCampaignLedger({ directory });
   assert.equal(recovered.revision, ledger.revision + 1);
   assert.equal(recovered.trials.filter((trial) => trial.status === "claimed").length, 1);
   assert.equal(recovered.trials.filter((trial) => trial.status === "pending").length, 89);
   assert.equal(
-    fs.existsSync(path.join(directory, ".campaign-ledger.lock")),
+    fs.existsSync(path.join(
+      campaignHeadAuthorityInfo(campaignAuthority(directory)).directory,
+      ".campaign-authority.lock",
+    )),
     true,
-    "the persistent SQLite lock database remains after both processes exit",
+    "the protected authority kernel lock remains after both processes exit",
+  );
+});
+
+test("protected head rejects valid-envelope ABA and whole-directory replay", () => {
+  const { directory, ledger } = createUnseeded();
+  const envelopePath = path.join(directory, "campaign-ledger.json");
+  const revisionZero = fs.readFileSync(envelopePath);
+  const claimed = claimCampaignSeed({
+    directory,
+    expectedRevision: ledger.revision,
+    seedId: ledger.seeds[0].seed_id,
+  });
+  const revisionOne = fs.readFileSync(envelopePath);
+  assert.equal(claimed.ledger.revision, 1);
+
+  fs.writeFileSync(envelopePath, revisionZero, { mode: 0o600 });
+  assert.throws(() => readCampaignLedger({ directory }), /projection rollback, replay, or replacement/);
+  assert.throws(() => claimCampaignSeed({
+    directory,
+    expectedRevision: 0,
+    seedId: ledger.seeds[0].seed_id,
+  }), /projection rollback, replay, or replacement/);
+  fs.writeFileSync(envelopePath, revisionOne, { mode: 0o600 });
+  assert.equal(readCampaignLedger({ directory }).revision, 1);
+  assert.equal(auditCampaignLedger({ directory }).revision, 1);
+
+  const copiedDirectory = path.join(temporaryDirectory("campaign-copy-parent"), "copied");
+  fs.cpSync(directory, copiedDirectory, { recursive: true });
+  fs.chmodSync(copiedDirectory, 0o700);
+  bindCampaignAuthority(copiedDirectory, campaignAuthority(directory));
+  assert.throws(
+    () => readCampaignLedger({ directory: copiedDirectory }),
+    /not registered|directory replay|identity replacement/,
+  );
+});
+
+test("journaled mutation recovers exactly once when projection persistence fails", () => {
+  const { directory, ledger } = createUnseeded();
+  const envelopePath = path.join(directory, "campaign-ledger.json");
+  const originalRename = fs.renameSync;
+  fs.renameSync = function failProjectionRename(sourcePath, targetPath) {
+    if (path.resolve(targetPath) === path.resolve(envelopePath)) {
+      throw new Error("injected projection persistence failure");
+    }
+    return originalRename.call(fs, sourcePath, targetPath);
+  };
+  try {
+    assert.throws(() => claimCampaignSeed({
+      directory,
+      expectedRevision: ledger.revision,
+      seedId: ledger.seeds[0].seed_id,
+    }), /injected projection persistence failure/);
+  } finally {
+    fs.renameSync = originalRename;
+  }
+
+  const recovered = readCampaignLedger({ directory });
+  assert.equal(recovered.revision, 1);
+  assert.equal(recovered.seeds[0].status, "claimed");
+  assert.throws(() => claimCampaignSeed({
+    directory,
+    expectedRevision: 0,
+    seedId: ledger.seeds[0].seed_id,
+  }), /CAS mismatch/);
+});
+
+test("one protected run series cannot create a second campaign or rerun generation", () => {
+  const authority = provisionCampaignHeadAuthority({ directory: temporaryDirectory("shared-campaign-authority") });
+  const firstDirectory = temporaryDirectory("singleton-first");
+  const secondDirectory = temporaryDirectory("singleton-second");
+  const rerunDirectory = temporaryDirectory("singleton-rerun");
+  bindCampaignAuthority(firstDirectory, authority);
+  bindCampaignAuthority(secondDirectory, authority);
+  bindCampaignAuthority(rerunDirectory, authority);
+  createUnseeded(firstDirectory, { pilotSource: source("pilot", 7001) });
+  assert.throws(
+    () => createUnseeded(secondDirectory, { pilotSource: source("pilot", 7001) }),
+    /protected run is already bound|campaign ID is already bound/,
+  );
+  assert.throws(
+    () => createUnseeded(rerunDirectory, {
+      pilotSource: { ...source("pilot", 7001), run_attempt: 2 },
+    }),
+    /protected run is already bound/,
+  );
+  const info = campaignHeadAuthorityInfo(openCampaignHeadAuthority({
+    directory: campaignHeadAuthorityInfo(authority).directory,
+  }));
+  assert.equal(info.authority_id, campaignHeadAuthorityInfo(authority).authority_id);
+  assert.equal(info.admission_mode, "blocked_groundwork");
+});
+
+test("two real processes racing to create one protected run produce one generation", async () => {
+  const authority = provisionCampaignHeadAuthority({ directory: temporaryDirectory("race-campaign-authority") });
+  const authorityDirectory = campaignHeadAuthorityInfo(authority).directory;
+  const firstDirectory = temporaryDirectory("race-create-first");
+  const secondDirectory = temporaryDirectory("race-create-second");
+  const results = await Promise.all([
+    spawnCreation(firstDirectory, authorityDirectory),
+    spawnCreation(secondDirectory, authorityDirectory),
+  ]);
+  assert.deepEqual(results.map((result) => result.code).sort(), [0, 1]);
+  assert.equal(
+    results.some((result) => /lock (?:acquisition failed|is held)|protected run is already bound|campaign ID is already bound/.test(result.stderr)),
+    true,
+    JSON.stringify(results),
+  );
+  const runClaims = fs.readdirSync(path.join(authorityDirectory, "journal", "run-claims"));
+  const campaignClaims = fs.readdirSync(path.join(authorityDirectory, "journal", "campaign-claims"));
+  assert.equal(runClaims.length, 1);
+  assert.equal(campaignClaims.length, 1);
+  const winner = results.find((result) => result.code === 0);
+  assert.match(winner.stdout, /"generation":"generation-[a-f0-9]{64}"/);
+  const losingDirectory = winner === results[0] ? secondDirectory : firstDirectory;
+  bindCampaignAuthority(losingDirectory, authority);
+  assert.throws(
+    () => createUnseeded(losingDirectory, { pilotSource: source("pilot", 9001) }),
+    /protected run is already bound|campaign ID is already bound/,
   );
 });

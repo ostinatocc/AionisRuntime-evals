@@ -14,8 +14,15 @@ GitHub-side deployment protection:
 These are current external controls, not permissions granted by workflow YAML.
 They do not make either executable path complete. The paid producer additionally
 requires a dedicated self-hosted runner labelled `aionis-soak-persistent` with
-a persistent Runtime volume. A Linux runner must also provide the trusted
-util-linux `flock` capability required by the campaign lock boundary. Provider
+a persistent Runtime volume and a separate protected, persistent, non-rollback
+campaign-authority mount. The authority-root path must come only from protected
+runner configuration, never workflow input. A Linux runner must also provide
+the trusted util-linux `flock` capability required by the authority lock
+boundary. Its preflight must exercise acquire/contend/SIGKILL recovery on the
+actual authority mount, perform a complete campaign-journal audit, and verify
+the filesystem, ownership and private-mode contract. Hosted CI cannot certify
+that mount. A non-clonable service or remote append-only anchor remains required
+if complete host or authority-volume rollback is in scope. Provider
 values must remain absent from repository and organization scope and must not be
 added to an environment until the paid executor and all admission pre-unblock
 authorities are implemented and independently reviewed.

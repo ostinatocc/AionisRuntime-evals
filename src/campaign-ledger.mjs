@@ -35,7 +35,16 @@ import {
   derivePostTrialSettlementFacts,
   parsePostTrialRuntimeResponse,
 } from "./post-trial-boundary.mjs";
-import { acquireExclusiveLock } from "./exclusive-lock.mjs";
+import {
+  appendCampaignHead,
+  assertCampaignHeadSessionIdentity,
+  auditCampaignHeadJournal,
+  claimCampaignRun,
+  markCampaignHeadProjected,
+  readCampaignHead,
+  registerCampaignHead,
+  withCampaignHeadAuthority,
+} from "./campaign-head-authority.mjs";
 import {
   OFFLINE_SQLITE_PRODUCT_INVARIANT_BLOCKER,
   assertOfflineSqliteLedgerFacts,
@@ -44,10 +53,10 @@ import {
   inspectOfflineSqliteEvidence,
 } from "./recovery-evidence-boundary.mjs";
 
-const ENVELOPE_SCHEMA = "aionis_campaign_ledger_envelope_v1";
+const ENVELOPE_SCHEMA = "aionis_campaign_ledger_envelope_v2";
+const HEAD_BINDING_SCHEMA = "aionis_campaign_head_binding_v1";
 const PAYLOAD_SCHEMA = "aionis_campaign_ledger_v3";
 const LEDGER_NAME = "campaign-ledger.json";
-const LOCK_NAME = ".campaign-ledger.lock";
 const MAX_LEDGER_BYTES = 8 * 1024 * 1024;
 const MAX_CONTRACT_SOURCE_BYTES = 8 * 1024 * 1024;
 const SOAK_WAVES = 3;
@@ -227,8 +236,16 @@ function ledgerPaths(directory) {
   return {
     root,
     ledger: path.join(root, LEDGER_NAME),
-    lock: path.join(root, LOCK_NAME),
   };
+}
+
+function lstatIfPresent(target) {
+  try {
+    return fs.lstatSync(target);
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
 }
 
 function ensureDirectory(root, create = false) {
@@ -247,23 +264,66 @@ function syncDirectory(root) {
   }
 }
 
-function withExclusiveLock(paths, operation) {
-  let handle;
+function withProtectedCampaignAuthority(headAuthority, paths, operation) {
   try {
-    handle = acquireExclusiveLock(paths.lock);
+    return withCampaignHeadAuthority(
+      headAuthority,
+      { campaignRoot: paths.root },
+      operation,
+    );
   } catch (error) {
-    fail(`campaign ledger lock acquisition failed: ${error.message}`);
-  }
-  try {
-    return operation();
-  } finally {
-    handle.release();
+    if (typeof error?.code === "string" && error.code.startsWith("LOCK_")) {
+      fail(`campaign authority/ledger lock acquisition failed: ${error.message}`);
+    }
+    throw error;
   }
 }
 
-function writeEnvelope(paths, payload) {
+function validateHeadBinding(value, field = "campaign protected head binding") {
+  exactKeys(value, [
+    "schema_version",
+    "authority_id",
+    "campaign_id",
+    "run_scope_id",
+    "generation",
+    "ledger_instance_id",
+    "revision",
+    "payload_sha256",
+    "previous_head_sha256",
+    "head_sha256",
+  ], field);
+  if (value.schema_version !== HEAD_BINDING_SCHEMA) fail(`${field} schema is invalid`);
+  if (!/^authority-[a-f0-9]{64}$/.test(value.authority_id ?? "")) fail(`${field} authority ID is invalid`);
+  if (!/^campaign-[a-f0-9]{40}$/.test(value.campaign_id ?? "")) fail(`${field} campaign ID is invalid`);
+  if (!/^run-[a-f0-9]{64}$/.test(value.run_scope_id ?? "")) fail(`${field} run scope ID is invalid`);
+  if (!/^generation-[a-f0-9]{64}$/.test(value.generation ?? "")) fail(`${field} generation is invalid`);
+  for (const key of ["ledger_instance_id", "payload_sha256", "head_sha256"]) {
+    if (!/^[a-f0-9]{64}$/.test(value[key] ?? "")) fail(`${field}.${key} is invalid`);
+  }
+  if (!Number.isSafeInteger(value.revision) || value.revision < 0) fail(`${field} revision is invalid`);
+  if (value.previous_head_sha256 !== null && !/^[a-f0-9]{64}$/.test(value.previous_head_sha256 ?? "")) {
+    fail(`${field} previous head is invalid`);
+  }
+  if ((value.revision === 0) !== (value.previous_head_sha256 === null)) {
+    fail(`${field} predecessor/revision binding is invalid`);
+  }
+  return clone(value);
+}
+
+function writeEnvelope(paths, payload, authorityHead) {
   const payloadSha256 = sha256(Buffer.from(canonical(payload)));
-  const envelope = { schema_version: ENVELOPE_SCHEMA, payload_sha256: payloadSha256, payload };
+  const protectedHead = validateHeadBinding(authorityHead);
+  if (protectedHead.campaign_id !== payload.campaign_id
+    || protectedHead.revision !== payload.revision
+    || protectedHead.payload_sha256 !== payloadSha256) {
+    fail("campaign protected head does not bind the envelope payload");
+  }
+  const envelope = {
+    schema_version: ENVELOPE_SCHEMA,
+    authority_head: protectedHead,
+    payload_sha256: payloadSha256,
+    payload,
+  };
   const source = `${JSON.stringify(envelope, null, 2)}\n`;
   const temporary = path.join(paths.root, `.${LEDGER_NAME}.${process.pid}.${randomBytes(12).toString("hex")}.tmp`);
   let descriptor;
@@ -285,7 +345,7 @@ function writeEnvelope(paths, payload) {
     }
     throw error;
   }
-  return payloadSha256;
+  return { payloadSha256, authorityHead: protectedHead };
 }
 
 function readEnvelope(paths) {
@@ -301,15 +361,81 @@ function readEnvelope(paths) {
   } catch (error) {
     fail(`campaign ledger envelope is not valid JSON: ${error.message}`);
   }
-  exactKeys(envelope, ["schema_version", "payload_sha256", "payload"], "campaign ledger envelope");
+  exactKeys(
+    envelope,
+    ["schema_version", "authority_head", "payload_sha256", "payload"],
+    "campaign ledger envelope",
+  );
   if (envelope.schema_version !== ENVELOPE_SCHEMA) fail("campaign ledger envelope schema is invalid");
   if (!/^[a-f0-9]{64}$/.test(envelope.payload_sha256 ?? "")) fail("campaign ledger payload SHA-256 is invalid");
   if (source !== `${JSON.stringify(envelope, null, 2)}\n`) fail("campaign ledger envelope is not canonical");
   const actual = sha256(Buffer.from(canonical(envelope.payload)));
   if (actual !== envelope.payload_sha256) fail("campaign ledger payload SHA-256 mismatch");
+  const authorityHead = validateHeadBinding(envelope.authority_head);
+  if (authorityHead.campaign_id !== envelope.payload.campaign_id
+    || authorityHead.revision !== envelope.payload.revision
+    || authorityHead.payload_sha256 !== actual) {
+    fail("campaign ledger envelope protected-head binding mismatch");
+  }
   const state = replayPayload(envelope.payload);
   verifyCampaignEvidence(paths.root, envelope.payload, state);
-  return { payload: envelope.payload, payloadSha256: actual, state };
+  return { payload: envelope.payload, payloadSha256: actual, authorityHead, state };
+}
+
+function readEnvelopeIfPresent(paths) {
+  if (!lstatIfPresent(paths.ledger)) return null;
+  return readEnvelope(paths);
+}
+
+function protectedProjectionMatches(envelope, protectedState) {
+  return envelope !== null
+    && envelope.payloadSha256 === protectedState.head.payload_sha256
+    && isDeepStrictEqual(envelope.authorityHead, protectedState.head)
+    && isDeepStrictEqual(envelope.payload, protectedState.payload);
+}
+
+function readProtectedProjection(session, paths) {
+  let envelope = readEnvelopeIfPresent(paths);
+  const protectedState = readCampaignHead(session, {
+    projection: envelope === null
+      ? { head: null, payload: null }
+      : { head: envelope.authorityHead, payload: envelope.payload },
+  });
+  const envelopeMatchesCurrent = protectedProjectionMatches(envelope, protectedState);
+  const protectedReplay = envelopeMatchesCurrent
+    ? envelope.state
+    : replayPayload(protectedState.payload);
+  if (!envelopeMatchesCurrent) {
+    verifyCampaignEvidence(paths.root, protectedState.payload, protectedReplay);
+  }
+  if (protectedState.projected_at !== null) {
+    if (!envelopeMatchesCurrent) {
+      fail("campaign ledger projection rollback, replay, or replacement detected");
+    }
+  } else if (envelopeMatchesCurrent) {
+    markCampaignHeadProjected(session, { head: protectedState.head });
+  } else {
+    const recoverableInitial = protectedState.head.revision === 0 && envelope === null;
+    const recoverableAdvance = protectedState.previous !== null
+      && protectedState.previous.projected_at !== null
+      && protectedProjectionMatches(envelope, protectedState.previous);
+    if (!recoverableInitial && !recoverableAdvance) {
+      fail("campaign unprojected head cannot reconcile the ledger projection");
+    }
+    assertCampaignHeadSessionIdentity(session);
+    writeEnvelope(paths, protectedState.payload, protectedState.head);
+    markCampaignHeadProjected(session, { head: protectedState.head });
+    envelope = readEnvelope(paths);
+    if (!protectedProjectionMatches(envelope, protectedState)) {
+      fail("campaign ledger projection recovery did not persist the protected head");
+    }
+  }
+  return {
+    payload: protectedState.payload,
+    payloadSha256: protectedState.head.payload_sha256,
+    authorityHead: protectedState.head,
+    state: protectedReplay,
+  };
 }
 
 function validateCandidate(candidate) {
@@ -3730,12 +3856,13 @@ function verifyCampaignEvidence(directory, payload, state) {
   }
 }
 
-function snapshot(payload, payloadSha256, state) {
+function snapshot(payload, payloadSha256, authorityHead, state) {
   return clone({
     schema_version: payload.schema_version,
     campaign_id: payload.campaign_id,
     revision: payload.revision,
     payload_sha256: payloadSha256,
+    authority_head: authorityHead,
     harness_commit: payload.harness_commit,
     candidate: payload.candidate,
     frozen_bindings: payload.frozen_bindings,
@@ -3761,12 +3888,12 @@ function snapshot(payload, payloadSha256, state) {
   });
 }
 
-function appendEvent({ directory, expectedRevision, event }) {
+function appendEvent({ headAuthority, directory, expectedRevision, event }) {
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) fail("expected revision must be a non-negative safe integer");
   const paths = ledgerPaths(directory);
   ensureDirectory(paths.root);
-  return withExclusiveLock(paths, () => {
-    const current = readEnvelope(paths);
+  return withProtectedCampaignAuthority(headAuthority, paths, (session) => {
+    const current = readProtectedProjection(session, paths);
     if (current.payload.revision !== expectedRevision) {
       fail(`campaign ledger CAS mismatch: expected revision ${expectedRevision}, found ${current.payload.revision}`);
     }
@@ -3775,12 +3902,28 @@ function appendEvent({ directory, expectedRevision, event }) {
     next.events.push({ revision: next.revision, ...event });
     const state = replayPayload(next);
     verifyCampaignEvidence(paths.root, next, state);
-    const payloadSha256 = writeEnvelope(paths, next);
-    return snapshot(next, payloadSha256, state);
+    const actorSource = event.type === "begin_soak"
+      ? state.phaseSources.soak
+      : current.state.phaseSources.soak ?? current.state.phaseSources.pilot;
+    const actorRun = claimCampaignRun(session, {
+      campaignId: current.payload.campaign_id,
+      runScope: actorSource,
+    });
+    const protectedNext = appendCampaignHead(session, {
+      expectedHead: current.authorityHead,
+      actorRunScopeId: actorRun.run_scope_id,
+      event: next.events.at(-1),
+      nextPayload: next,
+    });
+    assertCampaignHeadSessionIdentity(session);
+    const written = writeEnvelope(paths, next, protectedNext.head);
+    markCampaignHeadProjected(session, { head: protectedNext.head });
+    return snapshot(next, written.payloadSha256, protectedNext.head, state);
   });
 }
 
 export function createCampaignLedger({
+  headAuthority,
   directory,
   harnessCommit,
   releaseLockSource,
@@ -3852,21 +3995,60 @@ export function createCampaignLedger({
   const state = replayPayload(payload);
   const paths = ledgerPaths(directory);
   ensureDirectory(paths.root, true);
-  return withExclusiveLock(paths, () => {
-    if (fs.existsSync(paths.ledger)) fail("campaign ledger already exists");
-    const payloadSha256 = writeEnvelope(paths, payload);
-    return snapshot(payload, payloadSha256, state);
+  return withProtectedCampaignAuthority(headAuthority, paths, (session) => {
+    const registration = registerCampaignHead(session, {
+      campaignId: id,
+      runScope: source,
+      initialPayload: payload,
+    });
+    if (!registration.created && registration.projected_at !== null) {
+      fail("campaign ledger already exists in the protected authority");
+    }
+    const current = readProtectedProjection(session, paths);
+    return snapshot(current.payload, current.payloadSha256, current.authorityHead, current.state);
   });
 }
 
-export function readCampaignLedger({ directory }) {
-  const current = readEnvelope(ledgerPaths(directory));
-  return snapshot(current.payload, current.payloadSha256, current.state);
+export function readCampaignLedger({ headAuthority, directory }) {
+  const paths = ledgerPaths(directory);
+  ensureDirectory(paths.root);
+  return withProtectedCampaignAuthority(headAuthority, paths, (session) => {
+    const current = readProtectedProjection(session, paths);
+    return snapshot(current.payload, current.payloadSha256, current.authorityHead, current.state);
+  });
 }
 
-export function readCampaignRecoveryExpectation({ directory, checkpoint }) {
+export function auditCampaignLedger({ headAuthority, directory }) {
+  const paths = ledgerPaths(directory);
+  ensureDirectory(paths.root);
+  return withProtectedCampaignAuthority(headAuthority, paths, (session) => {
+    const envelope = readEnvelope(paths);
+    const protectedState = auditCampaignHeadJournal(session);
+    if (!protectedProjectionMatches(envelope, protectedState) || protectedState.projected_at === null) {
+      fail("campaign full journal audit does not match its acknowledged projection");
+    }
+    return snapshot(
+      protectedState.payload,
+      protectedState.head.payload_sha256,
+      protectedState.head,
+      envelope.state,
+    );
+  });
+}
+
+// Mutation builders may inspect the local projection before entering the
+// protected authority critical section. The projection is never authoritative:
+// appendEvent reloads the protected journal, rejects rollback/fork state, and
+// replays the complete next payload before accepting the mutation. Any CAS
+// object written from a stale builder is therefore only an unreachable orphan.
+function readCampaignProjectionCandidate(directory) {
+  const current = readEnvelope(ledgerPaths(directory));
+  return snapshot(current.payload, current.payloadSha256, current.authorityHead, current.state);
+}
+
+export function readCampaignRecoveryExpectation({ headAuthority, directory, checkpoint }) {
   nonEmptyString(checkpoint, "recovery expectation checkpoint");
-  return clone(recoveryExpectedBinding(readCampaignLedger({ directory }), checkpoint));
+  return clone(recoveryExpectedBinding(readCampaignLedger({ headAuthority, directory }), checkpoint));
 }
 
 function campaignSeed(ledger, seedId, field = "seed ID") {
@@ -3876,10 +4058,11 @@ function campaignSeed(ledger, seedId, field = "seed ID") {
   return seed;
 }
 
-export function claimCampaignSeed({ directory, expectedRevision, seedId }) {
-  const before = readCampaignLedger({ directory });
+export function claimCampaignSeed({ headAuthority, directory, expectedRevision, seedId }) {
+  const before = readCampaignProjectionCandidate(directory);
   const seed = campaignSeed(before, seedId);
   const ledger = appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: { type: "claim_seed", seed_id: seed.seed_id, operation_id: seed.operation_id },
@@ -3893,12 +4076,13 @@ function exactSeedRequestSource(source, seed, field) {
   return parsed;
 }
 
-export function markCampaignSeedRuntimeDispatch({ directory, expectedRevision, seedId, requestSource }) {
-  const before = readCampaignLedger({ directory });
+export function markCampaignSeedRuntimeDispatch({ headAuthority, directory, expectedRevision, seedId, requestSource }) {
+  const before = readCampaignProjectionCandidate(directory);
   const seed = campaignSeed(before, seedId);
   const request = exactSeedRequestSource(requestSource, seed, "seed Runtime request source");
   const requestEvidence = putEvidenceJsonBody({ campaignRoot: directory, body: request.bytes });
   return appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -3914,12 +4098,13 @@ export function markCampaignSeedRuntimeDispatch({ directory, expectedRevision, s
 // Seed /v1/observe calls are outside the paid provider budget. After an ambiguous
 // dispatch, the Runtime operation contract permits only an exact-byte replay with
 // the same deterministic operation_id; the durable request hash proves both facts.
-export function replayCampaignSeedRuntimeDispatch({ directory, expectedRevision, seedId, requestSource }) {
-  const before = readCampaignLedger({ directory });
+export function replayCampaignSeedRuntimeDispatch({ headAuthority, directory, expectedRevision, seedId, requestSource }) {
+  const before = readCampaignProjectionCandidate(directory);
   const seed = campaignSeed(before, seedId);
   const request = exactSeedRequestSource(requestSource, seed, "seed Runtime replay request source");
   const requestEvidence = putEvidenceJsonBody({ campaignRoot: directory, body: request.bytes });
   return appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -3933,13 +4118,14 @@ export function replayCampaignSeedRuntimeDispatch({ directory, expectedRevision,
 }
 
 export function recordCampaignSeedRuntimeResponse({
+  headAuthority,
   directory,
   expectedRevision,
   seedId,
   httpStatus,
   responseSource,
 }) {
-  const before = readCampaignLedger({ directory });
+  const before = readCampaignProjectionCandidate(directory);
   const seed = campaignSeed(before, seedId);
   const response = putExactJsonEvidence(directory, responseSource, "seed Runtime response source");
   if (!response.value || typeof response.value !== "object" || Array.isArray(response.value)) {
@@ -3977,6 +4163,7 @@ export function recordCampaignSeedRuntimeResponse({
     memory_binding: memoryBinding,
   };
   const ledger = appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -3990,12 +4177,13 @@ export function recordCampaignSeedRuntimeResponse({
   return { ledger, checkpoint: clone(checkpoint) };
 }
 
-export function claimCampaignTrial({ directory, expectedRevision, trialId: selectedTrialId }) {
+export function claimCampaignTrial({ headAuthority, directory, expectedRevision, trialId: selectedTrialId }) {
   nonEmptyString(selectedTrialId, "trial ID");
-  const before = readCampaignLedger({ directory });
+  const before = readCampaignProjectionCandidate(directory);
   const trial = before.trials.find((entry) => entry.trial_id === selectedTrialId);
   if (!trial) fail("trial ID is outside the deterministic campaign universe");
   const ledger = appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: { type: "claim_trial", trial_id: selectedTrialId, request_id: trial.preclaim.request_id },
@@ -4028,8 +4216,8 @@ function providerLedgerContext(directory, ledger, trial) {
   return { trial, guide_response: guideResponseForProvider(directory, trial) };
 }
 
-export function renderCampaignTrialGuideRequest({ directory, trialId: selectedTrialId }) {
-  const ledger = readCampaignLedger({ directory });
+export function renderCampaignTrialGuideRequest({ headAuthority, directory, trialId: selectedTrialId }) {
+  const ledger = readCampaignLedger({ headAuthority, directory });
   const trial = campaignTrial(ledger, selectedTrialId);
   if (trial.group !== "aionis" || trial.status !== "claimed") {
     fail("guide request rendering requires a uniquely claimed Aionis trial");
@@ -4047,6 +4235,7 @@ export function renderCampaignTrialGuideRequest({ directory, trialId: selectedTr
 }
 
 export function recordCampaignTrialGuideResponse({
+  headAuthority,
   directory,
   expectedRevision,
   trialId: selectedTrialId,
@@ -4054,7 +4243,7 @@ export function recordCampaignTrialGuideResponse({
   httpStatus,
   responseSource,
 }) {
-  const before = readCampaignLedger({ directory });
+  const before = readCampaignProjectionCandidate(directory);
   const trial = campaignTrial(before, selectedTrialId);
   if (trial.group !== "aionis" || trial.status !== "claimed") {
     fail("guide response recording requires a uniquely claimed Aionis trial");
@@ -4077,6 +4266,7 @@ export function recordCampaignTrialGuideResponse({
     responseValue: response.value,
   });
   const ledger = appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -4090,8 +4280,8 @@ export function recordCampaignTrialGuideResponse({
   return { ledger, checkpoint: clone(checkpoint) };
 }
 
-export function prepareCampaignTrialProviderRequest({ directory, expectedRevision, trialId: selectedTrialId }) {
-  const before = readCampaignLedger({ directory });
+export function prepareCampaignTrialProviderRequest({ headAuthority, directory, expectedRevision, trialId: selectedTrialId }) {
+  const before = readCampaignProjectionCandidate(directory);
   const trial = campaignTrial(before, selectedTrialId);
   const requiredStatus = trial.group === "aionis" ? "guide_responded" : "claimed";
   if (trial.status !== requiredStatus) fail("trial is not ready to prepare its provider request");
@@ -4102,6 +4292,7 @@ export function prepareCampaignTrialProviderRequest({ directory, expectedRevisio
   });
   const requestEvidence = putEvidenceJsonBody({ campaignRoot: directory, body: rendered.bytes });
   const ledger = appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -4114,8 +4305,8 @@ export function prepareCampaignTrialProviderRequest({ directory, expectedRevisio
   return { ledger, request_source: Buffer.from(rendered.bytes), request_evidence: requestEvidence };
 }
 
-export function readCampaignTrialPreparedProviderRequest({ directory, trialId: selectedTrialId }) {
-  const ledger = readCampaignLedger({ directory });
+export function readCampaignTrialPreparedProviderRequest({ headAuthority, directory, trialId: selectedTrialId }) {
+  const ledger = readCampaignLedger({ headAuthority, directory });
   const trial = campaignTrial(ledger, selectedTrialId);
   if (!new Set(["provider_request_prepared", "provider_retry_ready"]).has(trial.status)
     || !trial.provider_request_evidence) {
@@ -4128,12 +4319,13 @@ export function readCampaignTrialPreparedProviderRequest({ directory, trialId: s
 // `provider_request_prepared` is safe to send; `provider_dispatch_started` is
 // ambiguous after a crash and must never be automatically resent.
 export function markCampaignTrialProviderDispatch({
+  headAuthority,
   directory,
   expectedRevision,
   trialId: selectedTrialId,
   requestSource,
 }) {
-  const before = readCampaignLedger({ directory });
+  const before = readCampaignProjectionCandidate(directory);
   const trial = campaignTrial(before, selectedTrialId);
   if (!new Set(["provider_request_prepared", "provider_retry_ready"]).has(trial.status)
     || !trial.provider_request_evidence) {
@@ -4149,6 +4341,7 @@ export function markCampaignTrialProviderDispatch({
     requestBytes: source.bytes,
   });
   return appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -4163,6 +4356,7 @@ export function markCampaignTrialProviderDispatch({
 
 export function recordCampaignTrialProviderRetryableHttpResponse(options) {
   exactKeys(options, [
+    "headAuthority",
     "directory",
     "expectedRevision",
     "trialId",
@@ -4170,13 +4364,14 @@ export function recordCampaignTrialProviderRetryableHttpResponse(options) {
     "responseSource",
   ], "retryable provider HTTP response options");
   const {
+    headAuthority,
     directory,
     expectedRevision,
     trialId: selectedTrialId,
     httpStatus,
     responseSource,
   } = options;
-  const before = readCampaignLedger({ directory });
+  const before = readCampaignProjectionCandidate(directory);
   const trial = campaignTrial(before, selectedTrialId);
   if (trial.status !== "provider_dispatch_started" || trial.active_provider_attempt === null) {
     fail("retryable provider HTTP response requires an in-flight provider dispatch");
@@ -4199,6 +4394,7 @@ export function recordCampaignTrialProviderRetryableHttpResponse(options) {
     response_evidence: response.ref,
   };
   return appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -4213,6 +4409,7 @@ export function recordCampaignTrialProviderRetryableHttpResponse(options) {
 
 export function recordCampaignTrialProviderResponse(options) {
   exactKeys(options, [
+    "headAuthority",
     "directory",
     "expectedRevision",
     "trialId",
@@ -4220,13 +4417,14 @@ export function recordCampaignTrialProviderResponse(options) {
     "responseSource",
   ], "provider response options");
   const {
+    headAuthority,
     directory,
     expectedRevision,
     trialId: selectedTrialId,
     httpStatus,
     responseSource,
   } = options;
-  const before = readCampaignLedger({ directory });
+  const before = readCampaignProjectionCandidate(directory);
   const trial = campaignTrial(before, selectedTrialId);
   if (trial.status !== "provider_dispatch_started" || !trial.provider_request_evidence) {
     fail("provider response requires an ambiguous provider dispatch checkpoint");
@@ -4272,6 +4470,7 @@ export function recordCampaignTrialProviderResponse(options) {
     tool_result: boundary.tool_result,
   };
   return appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -4288,8 +4487,8 @@ function nextPostTrialStage(trial) {
   return POST_TRIAL_STAGES[trial.post_trial_checkpoints.length] ?? null;
 }
 
-export function renderCampaignTrialPostTrialRequest({ directory, trialId: selectedTrialId }) {
-  const ledger = readCampaignLedger({ directory });
+export function renderCampaignTrialPostTrialRequest({ headAuthority, directory, trialId: selectedTrialId }) {
+  const ledger = readCampaignLedger({ headAuthority, directory });
   const trial = campaignTrial(ledger, selectedTrialId);
   if (trial.group !== "aionis"
     || !new Set(["provider_responded", "post_trial_running"]).has(trial.status)) {
@@ -4317,6 +4516,7 @@ export function renderCampaignTrialPostTrialRequest({ directory, trialId: select
 
 export function recordCampaignTrialPostTrialResponse(options) {
   exactKeys(options, [
+    "headAuthority",
     "directory",
     "expectedRevision",
     "trialId",
@@ -4326,6 +4526,7 @@ export function recordCampaignTrialPostTrialResponse(options) {
     "responseSource",
   ], "post-trial Runtime response options");
   const {
+    headAuthority,
     directory,
     expectedRevision,
     trialId: selectedTrialId,
@@ -4334,7 +4535,7 @@ export function recordCampaignTrialPostTrialResponse(options) {
     httpStatus,
     responseSource,
   } = options;
-  const before = readCampaignLedger({ directory });
+  const before = readCampaignProjectionCandidate(directory);
   const trial = campaignTrial(before, selectedTrialId);
   if (trial.group !== "aionis"
     || !new Set(["provider_responded", "post_trial_running"]).has(trial.status)) {
@@ -4365,6 +4566,7 @@ export function recordCampaignTrialPostTrialResponse(options) {
     checkpoint_sha256: sha256(Buffer.from(canonical(checkpoint))),
   };
   const ledger = appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -4377,8 +4579,8 @@ export function recordCampaignTrialPostTrialResponse(options) {
   return { ledger, checkpoint: clone(checkpoint), durable_checkpoint: clone(durableCheckpoint) };
 }
 
-export function completeCampaignTrial({ directory, expectedRevision, trialId: selectedTrialId }) {
-  const before = readCampaignLedger({ directory });
+export function completeCampaignTrial({ headAuthority, directory, expectedRevision, trialId: selectedTrialId }) {
+  const before = readCampaignProjectionCandidate(directory);
   const trial = campaignTrial(before, selectedTrialId);
   if (!trial.provider_response) fail("completed trial requires a durable provider response checkpoint");
   let aionis = null;
@@ -4413,6 +4615,7 @@ export function completeCampaignTrial({ directory, expectedRevision, trialId: se
     aionis,
   };
   return appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -4425,7 +4628,7 @@ export function completeCampaignTrial({ directory, expectedRevision, trialId: se
   });
 }
 
-export function settleCampaignTrial({ directory, expectedRevision, receipt }) {
+export function settleCampaignTrial({ headAuthority, directory, expectedRevision, receipt }) {
   if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) fail("trial settlement receipt must be an object");
   const value = clone(receipt);
   if (value.status !== "failed") {
@@ -4434,6 +4637,7 @@ export function settleCampaignTrial({ directory, expectedRevision, receipt }) {
   nonEmptyString(value.trial_id, "trial settlement receipt trial ID");
   nonEmptyString(value.preclaim?.request_id, "trial settlement receipt request ID");
   return appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -4447,9 +4651,9 @@ export function settleCampaignTrial({ directory, expectedRevision, receipt }) {
 }
 
 export function recordCampaignPilotAdmission(options) {
-  exactKeys(options, ["directory", "expectedRevision", "workerStateRef"], "pilot admission options");
-  const { directory, expectedRevision, workerStateRef } = options;
-  const before = readCampaignLedger({ directory });
+  exactKeys(options, ["headAuthority", "directory", "expectedRevision", "workerStateRef"], "pilot admission options");
+  const { headAuthority, directory, expectedRevision, workerStateRef } = options;
+  const before = readCampaignProjectionCandidate(directory);
   if (before.status !== "pilot_running") fail(`pilot admission cannot complete from ${before.status}`);
   const pilotTrials = before.trials.filter((trial) => trial.phase === "pilot");
   if (pilotTrials.some((trial) => !new Set(["completed", "failed"]).has(trial.status))) {
@@ -4487,6 +4691,7 @@ export function recordCampaignPilotAdmission(options) {
   };
   value.reducer_evidence_sha256 = expectedReducerEvidenceSha256(value);
   return appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -4497,24 +4702,25 @@ export function recordCampaignPilotAdmission(options) {
   });
 }
 
-export function beginCampaignSoak({ directory, expectedRevision, source, startedAt }) {
+export function beginCampaignSoak({ headAuthority, directory, expectedRevision, source, startedAt }) {
   isoTimestamp(startedAt, "soak started_at");
   return appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: { type: "begin_soak", source: clone(source), started_at: startedAt },
   });
 }
 
-export function beginCampaignWave({ directory, expectedRevision, wave, startedAt }) {
+export function beginCampaignWave({ headAuthority, directory, expectedRevision, wave, startedAt }) {
   positiveInteger(wave, "soak wave");
   isoTimestamp(startedAt, "soak wave started_at");
-  return appendEvent({ directory, expectedRevision, event: { type: "begin_wave", wave, started_at: startedAt } });
+  return appendEvent({ headAuthority, directory, expectedRevision, event: { type: "begin_wave", wave, started_at: startedAt } });
 }
 
 export function inspectCampaignOfflineSqliteEvidence(options) {
-  exactKeys(options, ["directory", "databasePath"], "campaign offline SQLite inspection options");
-  const ledger = readCampaignLedger({ directory: options.directory });
+  exactKeys(options, ["headAuthority", "directory", "databasePath"], "campaign offline SQLite inspection options");
+  const ledger = readCampaignLedger({ headAuthority: options.headAuthority, directory: options.directory });
   if (ledger.status !== `soak_wave_${SOAK_WAVES}_running` || ledger.active_wave !== SOAK_WAVES) {
     fail("campaign offline SQLite inspection requires the terminal soak wave in progress");
   }
@@ -4567,11 +4773,11 @@ export function inspectCampaignOfflineSqliteEvidence(options) {
 export function recordCampaignWaveAdmission(options) {
   exactKeys(
     options,
-    ["directory", "expectedRevision", "workerStateRef", "offlineSqliteInspection"],
+    ["headAuthority", "directory", "expectedRevision", "workerStateRef", "offlineSqliteInspection"],
     "soak wave admission options",
   );
-  const { directory, expectedRevision, workerStateRef, offlineSqliteInspection } = options;
-  const before = readCampaignLedger({ directory });
+  const { headAuthority, directory, expectedRevision, workerStateRef, offlineSqliteInspection } = options;
+  const before = readCampaignProjectionCandidate(directory);
   const wave = before.active_wave;
   if (wave === null || before.status !== `soak_wave_${wave}_running`) {
     fail("soak wave admission cannot complete an inactive wave");
@@ -4649,6 +4855,7 @@ export function recordCampaignWaveAdmission(options) {
   };
   value.reducer_evidence_sha256 = expectedReducerEvidenceSha256(value);
   return appendEvent({
+    headAuthority,
     directory,
     expectedRevision,
     event: {
@@ -4659,7 +4866,8 @@ export function recordCampaignWaveAdmission(options) {
   });
 }
 
-export function recordCampaignFinalSoakAdmission({ directory, expectedRevision, receipt }) {
+export function recordCampaignFinalSoakAdmission({ headAuthority, directory, expectedRevision, receipt }) {
+  void headAuthority;
   void directory;
   void expectedRevision;
   void receipt;

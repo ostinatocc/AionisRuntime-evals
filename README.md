@@ -45,13 +45,25 @@ The frozen release lock binds:
 ## Campaign ledger
 
 `src/campaign-ledger.mjs` is the restart-safe local sequencing ledger for a
-future executor. Within a non-rollback campaign directory, it freezes all 90
+future executor. It freezes all 90
 trial identities and operation preclaims before a provider request, binds the
 raw lock/authority/workload hashes, checkpoints the provider boundary before
 and after dispatch, enforces a persisted pilot admission before soak, and
-admits soak waves only in order. Its envelope and lock are `0600` inside a
-`0700` directory; updates use a persistent private SQLite lock database,
-monotonic revision/CAS, atomic rename and directory sync. On macOS the SQLite
+admits soak waves only in order. `src/campaign-head-authority.mjs` now places a
+GitHub run-ID singleton and immutable per-revision head/projection-ack journals
+in a separate, explicitly provisioned `0700` authority root. Claims, heads and
+acknowledgements are no-clobber `0400` files. Its `0600` SQLite database is an
+exact-schema, repairable index; `campaign-ledger.json` is only a `0600` atomic
+projection. Restoring an acknowledged old projection, copying the campaign
+directory, changing its inode, reusing one GitHub run ID under another attempt
+or phase, or presenting SQLite ahead of the journal fails closed. A continuous
+journal and acknowledgement suffix repairs SQLite without resetting the
+generation. Normal operation verifies the indexed chain and immutable current
+tail; `auditCampaignLedger` performs a complete journal replay for admission
+preflight and recovery audits.
+
+All protected reads and mutations use the authority root's persistent kernel
+lock. On macOS the SQLite
 transaction uses the `unix-flock` VFS. On Linux, where that optional VFS is not
 normally compiled, a trusted non-group/world-writable util-linux `flock` places
 the kernel lock on a parent-owned inherited file description; every acquisition
@@ -62,12 +74,14 @@ locking. Closing the authority descriptor or SIGKILL releases the kernel lock;
 no PID-liveness guess or stale-marker deletion can grant ownership. A
 crash after dispatch is explicitly ambiguous and never auto-resends the paid
 request.
-This is not yet complete paid-dispatch authority. The local envelope CAS does
-not detect restoration of an older valid envelope (revision ABA), and the same
-protected run can currently recreate its deterministic campaign in another
-directory. Before any paid send, a protected non-rollback monotonic head and a
-run-scoped campaign singleton must bind campaign ID, generation, revision,
-previous payload hash and current payload hash outside the replaceable envelope.
+This remains blocked groundwork, not complete paid-dispatch authority. The
+authority metadata is fixed to `blocked_groundwork`. Its guarantees require the
+complete authority root to survive outside the campaign tree on a protected,
+persistent, non-rollback mount. Purely local state cannot detect cloning or
+rolling back that complete root; if host/volume rollback is in scope, paid
+execution also needs a non-clonable protected service or remote append-only
+anchor. The precise layout, crash matrix and trust boundary are documented in
+[`docs/CAMPAIGN_HEAD_AUTHORITY.md`](docs/CAMPAIGN_HEAD_AUTHORITY.md).
 Exact seed, guide and provider JSON bodies are content-addressed in a private
 `0700`/`0600` sidecar CAS. Its API accepts only a JSON body and has no separate
 header or metadata input, but it does not classify arbitrary JSON string values
@@ -102,9 +116,12 @@ new frozen authority revision must implement and test all of these boundaries:
 - a trusted in-process collector must own every pilot and soak provider
   exchange, bind the byte-exact prepared request to the socket response, and
   issue authority for every attempt and every wave—not just one pilot summary;
-- a protected monotonic campaign head and run-scoped singleton must reject
-  valid-envelope rollback, revision ABA, whole-directory replay, and duplicate
-  campaign creation before any paid dispatch;
+- the implemented protected monotonic campaign head and run-ID singleton must
+  pass a complete journal audit and the real runner's separately protected
+  non-rollback authority-mount preflight. If complete authority-root cloning or
+  host rollback is in scope, the run claim and current head must additionally
+  be bound to a non-clonable protected service or remote append-only anchor
+  before any paid dispatch;
 - the workload must freeze a host task envelope and a host-use receipt, and
   feedback coverage must join `verified_host_receipt` to those exact trusted
   records rather than accept a caller-selected attribution status;

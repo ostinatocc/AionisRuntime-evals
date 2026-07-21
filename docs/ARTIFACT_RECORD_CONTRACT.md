@@ -23,6 +23,13 @@ receipts, or supervisor-issued recovery evidence. Passing the v2 parser is
 therefore not proof that the recorded calls or effects happened at a trusted
 boundary.
 
+The private campaign ledger now has an internal protected monotonic head and
+GitHub run-ID singleton. Artifact v2 does not carry or verify that head, its
+generation, immutable journal, projection acknowledgements, or authority-root
+identity. That local improvement does not change the v2 publication or
+promotion claim. Artifact v3 must bind the exact protected head and required
+CAS/collector authorities into the public records.
+
 Stable promotion remains fail-closed independently with
 `product_invariant_query_contract_unfrozen`. Before that blocker can be replaced
 with executable evidence, artifact v3 must bind campaign/CAS/collector/host
