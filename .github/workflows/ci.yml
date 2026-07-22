@@ -1,49 +1,84 @@
-name: Authority CI
+name: Continuation Runtime V1 Evals
 
 on:
   push:
     branches:
       - main
   pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: authority-ci-${{ github.workflow }}-${{ github.ref }}
+  group: continuation-runtime-v1-evals-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  contracts:
-    name: Frozen authority contracts
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+  verify:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - "22.15.0"
+          - "24"
     steps:
-      - name: Checkout exact tested commit
+      - name: Checkout eval authority
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Node.js from .nvmrc
+
+      - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version-file: .nvmrc
+          node-version: ${{ matrix.node }}
           cache: npm
-      - name: Verify exact clean checkout and install without lifecycle scripts
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse 'HEAD^{commit}')" = "${GITHUB_SHA}"
-          test -z "$(git status --porcelain)"
-          test "$(node -p 'process.versions.node.split(`.`)[0]')" = "24"
-          npm ci --ignore-scripts
-      - name: Run complete authority tests
-        run: npm test
-      - name: Validate frozen v0.3.12 fixtures
-        run: npm run -s validate:fixture
-      - name: Verify tests did not mutate authority bytes
-        run: |
-          set -euo pipefail
-          git diff --exit-code
-          git diff --cached --exit-code
-          test -z "$(git status --porcelain)"
+
+      - name: Install exact dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Verify V1 contracts and source closure
+        run: npm run check
+
+  runtime-v1-integration:
+    name: Exact Runtime V1 integration
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout eval authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout locked Runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ostinatocc/Aionis
+          ref: 44a61715d1df237cdd84d86beb4e61a4b8b98782
+          path: AionisRuntime-focused
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            AionisRuntime-focused/package-lock.json
+
+      - name: Install exact eval dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Install exact Runtime dependencies
+        working-directory: AionisRuntime-focused
+        run: npm ci --ignore-scripts
+
+      - name: Run real SDK, daemon, ledger, and audit gate
+        env:
+          AIONIS_RUNTIME_REPO: ${{ github.workspace }}/AionisRuntime-focused
+        run: npm run test:runtime-v1

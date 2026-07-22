@@ -1,7 +1,37 @@
-node_modules/
-artifacts/
-checkpoints/
-reports/
-*.tmp
 .DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+coverage/
+.work/
+artifacts/
+reports/
+*.db
+*.key
+*.pem
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.tgz
 
+# Pre-V1 local evaluation corpus. It remains on disk for historical analysis,
+# but is deliberately outside the Continuation Runtime V1 authority tree.
+/.cache/
+/.tmp/
+/.venv-*/
+/admission-dataset-*/
+/context-layout-compiler/
+/evoarena/
+/external-agent-e2e/
+/llm-as-judge-admission/
+/memorydata-slices/
+/mgbench/
+/pawbench-aionis/
+/product-*/
+/real-repo-ab/
+/scripts/
+/state-preserving-compression-benchmark/
+/terminal-bench-agentcontext/
+/terminal-bench-episode-split/
+/vendor/
