@@ -11,6 +11,7 @@ import {
   expectText,
   sha256Bytes,
 } from "./canonical.mjs";
+import { verifyDeepSeekModelProtocolV1 } from "./deepseek-model-protocol.mjs";
 
 export const PILOT_ARMS_V1 = Object.freeze([
   "baseline",
@@ -270,8 +271,12 @@ function verifyMemoryInput(value, index, task, observationIds, obligations) {
 
 function verifySourceFixture(value) {
   const record = expectExactRecord(value, [
-    "fixture_sha256", "relative_path", "source_evidence_sha256", "trap_id",
+    "digest_encoding", "fixture_sha256", "relative_path", "source_evidence_sha256",
+    "trap_id",
   ], "source_fixture");
+  if (record.digest_encoding !== "raw_bytes_sha256_v1") {
+    fail("source_fixture_digest_encoding_invalid");
+  }
   expectText(record.relative_path, "source_fixture_relative_path", { maximumBytes: 1_024 });
   if (record.relative_path.startsWith("/") || record.relative_path.includes("..")) {
     fail("source_fixture_relative_path_invalid");
@@ -283,8 +288,13 @@ function verifySourceFixture(value) {
 
 function verifyWorkspace(value) {
   const record = expectExactRecord(value, [
-    "base_commit_sha", "clean_status_sha256", "prepared_tree_sha256", "repository_url",
+    "base_commit_sha", "clean_status_encoding", "clean_status_sha256",
+    "prepared_tree_encoding", "prepared_tree_sha256", "repository_url",
   ], "workspace");
+  if (record.prepared_tree_encoding !== "aionis_pilot_workspace_projection_v1"
+    || record.clean_status_encoding !== "git_status_porcelain_v1_z_sha256_v1") {
+    fail("workspace_encoding_invalid");
+  }
   const repositoryUrl = expectText(record.repository_url, "workspace_repository_url", {
     maximumBytes: 2_048,
   });
@@ -506,6 +516,10 @@ export function verifyPilotCaseV1(value) {
   verifySourceFixture(record.source_fixture);
   verifyWorkspace(record.workspace);
   verifyPublicAgentInput(record.public_agent_input);
+  if (record.public_agent_input.workspace_projection_sha256
+      !== record.workspace.prepared_tree_sha256) {
+    fail("case_workspace_projection_binding_invalid");
+  }
   verifyEpisodeEvidence(record.episode_1_evidence);
   verifyRuntimeInput(record.runtime_input);
   verifyPrivateVerifier(record.private_verifier);
@@ -621,9 +635,9 @@ export function buildLatinSquareScheduleV1(pilotIdValue, caseRefs) {
 
 function verifyRuntimeBinding(value) {
   const record = expectExactRecord(value, [
+    "authority_build_closure_sha256",
+    "cell_policy_bundle_set_sha256",
     "cohort_installed",
-    "compiler_policy_ref",
-    "evidence_policy_ref",
     "git_commit_sha",
     "git_tree_sha",
     "oci_closure_manifest_sha256",
@@ -632,8 +646,14 @@ function verifyRuntimeBinding(value) {
     "package_lock_sha256",
     "schema_manifest_file_sha256",
     "schema_sha256",
+    "sdk_entry_count",
+    "sdk_package_name",
+    "sdk_package_version",
     "sdk_tgz_sha256",
     "sdk_tgz_sha512",
+    "task_family",
+    "tenant_id",
+    "trust_root_sha256",
     "worktree_clean",
   ], "runtime_binding");
   gitSha(record.git_commit_sha, "runtime_git_commit_sha");
@@ -642,60 +662,120 @@ function verifyRuntimeBinding(value) {
   for (const field of [
     "package_lock_sha256", "schema_manifest_file_sha256", "schema_sha256",
     "oci_closure_manifest_sha256", "oci_closure_sha256", "sdk_tgz_sha256",
+    "authority_build_closure_sha256", "cell_policy_bundle_set_sha256",
+    "trust_root_sha256",
   ]) expectSha256(record[field], `runtime_${field}`);
   sha512(record.sdk_tgz_sha512, "runtime_sdk_tgz_sha512");
-  imageDigest(record.oci_image_digest, "runtime_oci_image_digest");
-  for (const [name, ref] of [
-    ["compiler", record.compiler_policy_ref],
-    ["evidence", record.evidence_policy_ref],
-  ]) {
-    const artifact = expectExactRecord(ref, ["artifact_sha256", "payload_sha256"],
-      `runtime_${name}_policy_ref`);
-    expectSha256(artifact.artifact_sha256, `runtime_${name}_artifact_sha256`);
-    expectSha256(artifact.payload_sha256, `runtime_${name}_payload_sha256`);
+  if (record.sdk_package_name !== "@aionis/continuation-sdk"
+    || typeof record.sdk_package_version !== "string"
+    || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(record.sdk_package_version)) {
+    fail("runtime_sdk_package_identity_invalid");
   }
+  expectPositiveInteger(record.sdk_entry_count, "runtime_sdk_entry_count");
+  imageDigest(record.oci_image_digest, "runtime_oci_image_digest");
+  expectText(record.tenant_id, "runtime_tenant_id");
+  expectText(record.task_family, "runtime_task_family");
   exactBoolean(record.cohort_installed, false, "runtime_cohort_installed");
+}
+
+function verifyPolicyArtifactRef(value, field) {
+  const artifact = expectExactRecord(value, [
+    "artifact_sha256", "payload_sha256",
+  ], field);
+  expectSha256(artifact.artifact_sha256, `${field}_artifact_sha256`);
+  expectSha256(artifact.payload_sha256, `${field}_payload_sha256`);
+  return canonicalClone(artifact);
+}
+
+function verifyCellPolicyBundleBinding(value, index) {
+  const field = `cell_policy_bundle_binding_${index}`;
+  const binding = expectExactRecord(value, [
+    "authority_subject_sha256",
+    "compiler_policy_ref",
+    "evidence_policy_ref",
+    "opaque_cell_id",
+    "ordinal",
+    "provisioning_command_sha256",
+    "runtime_scope",
+  ], field);
+  expectPositiveInteger(binding.ordinal, `${field}_ordinal`);
+  expectText(binding.opaque_cell_id, `${field}_opaque_cell_id`);
+  expectText(binding.runtime_scope, `${field}_runtime_scope`);
+  expectSha256(binding.authority_subject_sha256, `${field}_authority_subject_sha256`);
+  expectSha256(
+    binding.provisioning_command_sha256,
+    `${field}_provisioning_command_sha256`,
+  );
+  verifyPolicyArtifactRef(binding.compiler_policy_ref, `${field}_compiler_policy_ref`);
+  verifyPolicyArtifactRef(binding.evidence_policy_ref, `${field}_evidence_policy_ref`);
+  return canonicalClone(binding);
+}
+
+export function cellPolicyBundleSetSha256V1(value) {
+  const input = expectExactRecord(value, [
+    "bindings", "pilotId", "taskFamily", "tenantId", "trustRootSha256",
+  ], "cell_policy_bundle_set_input");
+  const pilotId = expectText(input.pilotId, "cell_policy_bundle_set_pilot_id");
+  const tenantId = expectText(input.tenantId, "cell_policy_bundle_set_tenant_id");
+  const taskFamily = expectText(input.taskFamily, "cell_policy_bundle_set_task_family");
+  const trustRootSha256 = expectSha256(
+    input.trustRootSha256,
+    "cell_policy_bundle_set_trust_root_sha256",
+  );
+  const bindings = expectArray(input.bindings, "cell_policy_bundle_set_bindings", {
+    minimum: 9,
+    maximum: 9,
+  }).map(verifyCellPolicyBundleBinding);
+  if (new Set(bindings.map((binding) => binding.ordinal)).size !== bindings.length
+    || new Set(bindings.map((binding) => binding.opaque_cell_id)).size !== bindings.length
+    || new Set(bindings.map((binding) => binding.runtime_scope)).size !== bindings.length
+    || bindings.some((binding, index) => binding.ordinal !== index + 1)) {
+    fail("cell_policy_bundle_set_order_invalid");
+  }
+  return canonicalSha256({
+    schema_version: "aionis_pilot_cell_policy_bundle_set_v1",
+    pilot_id: pilotId,
+    tenant_id: tenantId,
+    task_family: taskFamily,
+    trust_root_sha256: trustRootSha256,
+    bindings,
+  });
 }
 
 function verifyEvalBinding(value) {
   const record = expectExactRecord(value, [
     "closure_sha256", "fixture_set_sha256", "git_commit_sha", "git_tree_sha",
-    "protocol_sha256", "worktree_clean",
+    "git_executable_identity_sha256", "git_executable_path", "git_executable_sha256",
+    "protocol_sha256", "runner_authority_public_key_principal_sha256", "worktree_clean",
   ], "eval_binding");
   gitSha(record.git_commit_sha, "eval_git_commit_sha");
   gitSha(record.git_tree_sha, "eval_git_tree_sha");
+  const gitExecutablePath = expectText(
+    record.git_executable_path,
+    "eval_git_executable_path",
+    { maximumBytes: 16_384 },
+  );
+  const gitPathComponents = gitExecutablePath.split("/");
+  if (!gitExecutablePath.startsWith("/")
+    || gitPathComponents.slice(1).some((component) =>
+      component.length === 0 || component === "." || component === "..")) {
+    fail("eval_git_executable_path_invalid");
+  }
   exactBoolean(record.worktree_clean, true, "eval_worktree_clean");
-  for (const field of ["closure_sha256", "fixture_set_sha256", "protocol_sha256"]) {
+  for (const field of [
+    "closure_sha256", "fixture_set_sha256", "git_executable_identity_sha256",
+    "git_executable_sha256", "protocol_sha256",
+  ]) {
     expectSha256(record[field], `eval_${field}`);
   }
+  expectSha256(
+    record.runner_authority_public_key_principal_sha256,
+    "eval_runner_authority_public_key_principal_sha256",
+  );
 }
 
 function verifyModelProtocol(value) {
-  const record = expectExactRecord(value, [
-    "endpoint",
-    "immutable_snapshot",
-    "maximum_provider_request_attempt_count",
-    "max_tokens",
-    "model_profile_sha256",
-    "provider",
-    "provider_may_update_weights",
-    "requested_model",
-    "retries",
-    "scored_agent_execution_count",
-    "temperature",
-  ], "model_protocol");
-  if (record.provider !== "openrouter"
-    || record.endpoint !== "https://openrouter.ai/api/v1/chat/completions"
-    || record.requested_model !== "deepseek/deepseek-v4-pro"
-    || record.temperature !== 0 || record.retries !== 0
-    || record.scored_agent_execution_count !== 9
-    || record.maximum_provider_request_attempt_count !== 9
-    || record.immutable_snapshot !== false
-    || record.provider_may_update_weights !== true) {
-    fail("model_protocol_invalid");
-  }
-  expectPositiveInteger(record.max_tokens, "model_protocol_max_tokens");
-  expectSha256(record.model_profile_sha256, "model_protocol_profile_sha256");
+  verifyDeepSeekModelProtocolV1(value);
 }
 
 function verifyPromotionGate(value) {

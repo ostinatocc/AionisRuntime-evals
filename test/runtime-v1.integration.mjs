@@ -202,6 +202,7 @@ test("observe-only and treatment share exact observations while treatment closes
       cell_execution_ref: {
         pilot_id: treatmentCell.pilot_id,
         opaque_cell_id: treatmentCell.opaque_cell_id,
+        arm: treatmentCell.arm,
         case_id: treatmentCell.case_id,
         case_sha256: treatmentCell.case_sha256,
         decision_id: treatment.runtime.continuation.decision_id,
@@ -267,7 +268,7 @@ test("observe-only and treatment share exact observations while treatment closes
     assert.match(settled.runtime.settlement.ledger_head_event_sha256, /^[0-9a-f]{64}$/u);
     assert.equal(treatmentFixture.binding.cohort_installed, false);
     assert.equal(treatmentFixture.binding.runtime_git_commit_sha,
-      "44a61715d1df237cdd84d86beb4e61a4b8b98782");
+      "c6491e58670e9633b04ab069c75164435f49827e");
   } finally {
     if (observeFixture !== null) await observeFixture.close();
     if (treatmentFixture !== null) await treatmentFixture.close();

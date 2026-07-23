@@ -17,6 +17,7 @@ function evidenceInput(overrides = {}) {
     cell_execution_ref: {
       pilot_id: "pilot-1",
       opaque_cell_id: "cell-01",
+      arm: "treatment",
       case_id: "case-01",
       case_sha256: SHA_A,
       decision_id: "decision-01",
@@ -202,5 +203,27 @@ test("builder refuses caller-supplied derived authority identities and duplicate
   assert.throws(
     () => buildSignedVerifierEvidenceV1(duplicate, keys.privateKey),
     /check_id_duplicate/u,
+  );
+});
+
+test("control evidence uses null Runtime refs instead of fabricated decisions", () => {
+  const keys = generateKeyPairSync("ed25519");
+  const control = evidenceInput();
+  Object.assign(control.cell_execution_ref, {
+    arm: "observe_only",
+    decision_id: null,
+    contract_sha256: null,
+    render_result_sha256: null,
+    exposure_event_sha256: null,
+  });
+  const evidence = buildSignedVerifierEvidenceV1(control, keys.privateKey);
+  assert.equal(evidence.cell_execution_ref.decision_id, null);
+  assert.deepEqual(verifySignedVerifierEvidenceV1(evidence, keys.publicKey), evidence);
+
+  const fabricated = evidenceInput();
+  fabricated.cell_execution_ref.arm = "baseline";
+  assert.throws(
+    () => buildSignedVerifierEvidenceV1(fabricated, keys.privateKey),
+    /control_runtime_ref_present/u,
   );
 });

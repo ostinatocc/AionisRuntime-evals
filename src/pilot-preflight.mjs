@@ -31,6 +31,11 @@ export function preflightPilotArtifactsV1(value) {
     }
     return pilotCase;
   });
+  if (orderedCases.some((pilotCase) =>
+    pilotCase.runtime_input.record_observations_body.host_task.task_family
+      !== plan.runtime_binding.task_family)) {
+    fail("case_task_family_binding_mismatch");
+  }
   if (pilotFixtureSetSha256V1(plan.cases) !== plan.eval_binding.fixture_set_sha256) {
     fail("fixture_set_binding_mismatch");
   }

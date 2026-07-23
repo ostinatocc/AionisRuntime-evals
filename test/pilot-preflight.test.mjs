@@ -106,6 +106,7 @@ function fixture(id) {
   return buildPilotCaseV1({
     case_id: id,
     source_fixture: {
+      digest_encoding: "raw_bytes_sha256_v1",
       relative_path: `fixtures/v1/${id}.json`,
       fixture_sha256: SHA,
       trap_id: `${id}-trap`,
@@ -114,7 +115,9 @@ function fixture(id) {
     workspace: {
       repository_url: "https://github.com/example/project.git",
       base_commit_sha: GIT,
+      prepared_tree_encoding: "aionis_pilot_workspace_projection_v1",
       prepared_tree_sha256: SHA,
+      clean_status_encoding: "git_status_porcelain_v1_z_sha256_v1",
       clean_status_sha256: SHA_B,
     },
     public_agent_input: {
@@ -159,11 +162,12 @@ test("preflight closes the plan, protocol, case refs, and nine-cell schedule", (
     scope: "verified_continuity_release_pilot",
   };
   const modelProtocol = {
-    provider: "openrouter",
-    endpoint: "https://openrouter.ai/api/v1/chat/completions",
-    requested_model: "deepseek/deepseek-v4-pro",
-    model_profile_sha256: SHA,
-    temperature: 0,
+    provider: "deepseek",
+    endpoint: "https://api.deepseek.com/chat/completions",
+    requested_model: "deepseek-v4-flash",
+    thinking_mode: "enabled",
+    reasoning_effort: "max",
+    response_format: "json_object",
     max_tokens: 8_192,
     retries: 0,
     scored_agent_execution_count: 9,
@@ -186,10 +190,16 @@ test("preflight closes the plan, protocol, case refs, and nine-cell schedule", (
       oci_image_digest: `sha256:${SHA_B}`,
       oci_closure_manifest_sha256: SHA,
       oci_closure_sha256: SHA_B,
+      sdk_package_name: "@aionis/continuation-sdk",
+      sdk_package_version: "1.0.0-alpha.1",
+      sdk_entry_count: 19,
       sdk_tgz_sha256: SHA,
       sdk_tgz_sha512: "4".repeat(128),
-      compiler_policy_ref: { artifact_sha256: SHA, payload_sha256: SHA_B },
-      evidence_policy_ref: { artifact_sha256: SHA_B, payload_sha256: SHA },
+      authority_build_closure_sha256: SHA_B,
+      tenant_id: "tenant-pilot-preflight-test",
+      task_family: "coding",
+      trust_root_sha256: SHA,
+      cell_policy_bundle_set_sha256: SHA_B,
       cohort_installed: false,
     },
     eval_binding: {
@@ -197,6 +207,9 @@ test("preflight closes the plan, protocol, case refs, and nine-cell schedule", (
       git_tree_sha: GIT,
       worktree_clean: true,
       closure_sha256: SHA,
+      git_executable_path: "/usr/bin/git",
+      git_executable_sha256: SHA_B,
+      git_executable_identity_sha256: SHA,
       fixture_set_sha256: pilotFixtureSetSha256V1(refs),
       protocol_sha256: pilotProtocolSha256V1({
         claim,
@@ -204,6 +217,7 @@ test("preflight closes the plan, protocol, case refs, and nine-cell schedule", (
         arms: PILOT_ARMS_V1,
         promotion_gate: promotionGate,
       }),
+      runner_authority_public_key_principal_sha256: SHA_B,
     },
     model_protocol: modelProtocol,
     arms: PILOT_ARMS_V1,

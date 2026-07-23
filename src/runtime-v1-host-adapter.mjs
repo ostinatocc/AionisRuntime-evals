@@ -7,6 +7,7 @@ import {
   expectExactRecord,
   expectSha256,
   expectText,
+  sha256Bytes,
 } from "./canonical.mjs";
 import {
   decodeCreateContinuationResponseV1,
@@ -58,6 +59,9 @@ export function pilotCellOperationIdsV1(cellValue) {
 function operationProjection(decoded) {
   const response = decoded.response;
   return canonicalClone({
+    operation_id: response.operation_receipt.operation_id,
+    scope: response.operation_receipt.scope,
+    operation_receipt: response.operation_receipt,
     operation_receipt_sha256: response.operation_receipt_sha256,
     operation_request_sha256: response.operation_receipt.request_sha256,
   });
@@ -73,6 +77,7 @@ function treatmentProjection(decoded, continuationBodySha256) {
     coverage_certificate_sha256: decoded.coverage.certificate_sha256,
     exposure_event_sha256: decoded.exposureReceipt.event_sha256,
     render_result_sha256: decoded.render.render_result_sha256,
+    render_content_sha256: sha256Bytes(Buffer.from(decoded.render.content, "utf8")),
     projection_sha256: decoded.render.projection_sha256,
     render_status: decoded.render.status,
     coverage_status: decoded.coverage.status,
@@ -212,8 +217,11 @@ export function createRuntimeV1HostAdapter(options) {
         "experiment_cohort_ref",
         "exposure_event_sha256",
         "operation_receipt_sha256",
+        "operation_id",
+        "operation_receipt",
         "operation_request_sha256",
         "projection_sha256",
+        "render_content_sha256",
         "render_result_sha256",
         "render_status",
         "request_body_sha256",
@@ -221,6 +229,7 @@ export function createRuntimeV1HostAdapter(options) {
         "selected_capsules",
         "serving_assignment_receipt",
         "serving_mode",
+        "scope",
       ], "prepared_continuation");
       if (continuation.serving_mode !== "authoritative_unassigned"
         || continuation.experiment_cohort_ref !== null
@@ -240,6 +249,7 @@ export function createRuntimeV1HostAdapter(options) {
       const expectedCellExecutionRef = canonicalClone({
         pilot_id: cell.pilot_id,
         opaque_cell_id: cell.opaque_cell_id,
+        arm: cell.arm,
         case_id: cell.case_id,
         case_sha256: cell.case_sha256,
         decision_id: continuation.decision_id,

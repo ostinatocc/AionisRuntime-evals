@@ -10,6 +10,7 @@ import {
   buildLatinSquareScheduleV1,
   buildPilotCaseV1,
   buildPilotPlanV1,
+  cellPolicyBundleSetSha256V1,
   defaultPromotionGateV1,
   pilotFixtureSetSha256V1,
   pilotProtocolSha256V1,
@@ -21,6 +22,42 @@ import {
 const SHA = "a".repeat(64);
 const SHA_B = "b".repeat(64);
 const GIT = "c".repeat(40);
+
+test("cell policy bundle set is ordered and binds all nine isolated scopes", () => {
+  const cases = [pilotCase("policy-one"), pilotCase("policy-two"), pilotCase("policy-three")];
+  const refs = cases.map(({ case_id, case_sha256 }) => ({ case_id, case_sha256 }));
+  const pilotId = "pilot-policy-bundle-set-test";
+  const schedule = buildLatinSquareScheduleV1(pilotId, refs);
+  const bindings = schedule.map((cell) => ({
+    ordinal: cell.ordinal,
+    opaque_cell_id: cell.opaque_cell_id,
+    runtime_scope: cell.isolation.runtime_scope,
+    authority_subject_sha256: canonicalSha256({
+      schema_version: "continuation_authority_subject_v1",
+      tenant_id: "tenant-policy-test",
+      scope: cell.isolation.runtime_scope,
+      task_family: "coding",
+    }),
+    provisioning_command_sha256: canonicalSha256({ ordinal: cell.ordinal }),
+    compiler_policy_ref: { artifact_sha256: SHA, payload_sha256: SHA_B },
+    evidence_policy_ref: { artifact_sha256: SHA_B, payload_sha256: SHA },
+  }));
+  const input = {
+    pilotId,
+    tenantId: "tenant-policy-test",
+    taskFamily: "coding",
+    trustRootSha256: SHA,
+    bindings,
+  };
+  assert.match(cellPolicyBundleSetSha256V1(input), /^[0-9a-f]{64}$/u);
+  assert.throws(
+    () => cellPolicyBundleSetSha256V1({
+      ...input,
+      bindings: [bindings[1], bindings[0], ...bindings.slice(2)],
+    }),
+    /cell_policy_bundle_set_order_invalid/u,
+  );
+});
 
 function pilotCase(id) {
   const prompt = `Complete public task ${id}.`;
@@ -111,6 +148,7 @@ function pilotCase(id) {
   return buildPilotCaseV1({
     case_id: id,
     source_fixture: {
+      digest_encoding: "raw_bytes_sha256_v1",
       relative_path: `fixtures/v1/${id}.json`,
       fixture_sha256: SHA,
       trap_id: `${id}-trap`,
@@ -119,7 +157,9 @@ function pilotCase(id) {
     workspace: {
       repository_url: "https://github.com/example/project.git",
       base_commit_sha: GIT,
+      prepared_tree_encoding: "aionis_pilot_workspace_projection_v1",
       prepared_tree_sha256: SHA,
+      clean_status_encoding: "git_status_porcelain_v1_z_sha256_v1",
       clean_status_sha256: SHA_B,
     },
     public_agent_input: {
@@ -169,11 +209,12 @@ test("case and plan bind exact data with a three-case Latin square", () => {
     scope: "verified_continuity_release_pilot",
   };
   const modelProtocol = {
-    provider: "openrouter",
-    endpoint: "https://openrouter.ai/api/v1/chat/completions",
-    requested_model: "deepseek/deepseek-v4-pro",
-    model_profile_sha256: SHA,
-    temperature: 0,
+    provider: "deepseek",
+    endpoint: "https://api.deepseek.com/chat/completions",
+    requested_model: "deepseek-v4-flash",
+    thinking_mode: "enabled",
+    reasoning_effort: "max",
+    response_format: "json_object",
     max_tokens: 8_192,
     retries: 0,
     scored_agent_execution_count: 9,
@@ -205,10 +246,16 @@ test("case and plan bind exact data with a three-case Latin square", () => {
       oci_image_digest: `sha256:${SHA_B}`,
       oci_closure_manifest_sha256: SHA,
       oci_closure_sha256: SHA_B,
+      sdk_package_name: "@aionis/continuation-sdk",
+      sdk_package_version: "1.0.0-alpha.1",
+      sdk_entry_count: 19,
       sdk_tgz_sha256: SHA,
       sdk_tgz_sha512: "d".repeat(128),
-      compiler_policy_ref: { artifact_sha256: SHA, payload_sha256: SHA_B },
-      evidence_policy_ref: { artifact_sha256: SHA_B, payload_sha256: SHA },
+      authority_build_closure_sha256: SHA_B,
+      tenant_id: "tenant-pilot-contract-test",
+      task_family: "coding",
+      trust_root_sha256: SHA,
+      cell_policy_bundle_set_sha256: SHA_B,
       cohort_installed: false,
     },
     eval_binding: {
@@ -216,6 +263,9 @@ test("case and plan bind exact data with a three-case Latin square", () => {
       git_tree_sha: GIT,
       worktree_clean: true,
       closure_sha256: SHA,
+      git_executable_path: "/usr/bin/git",
+      git_executable_sha256: SHA_B,
+      git_executable_identity_sha256: SHA,
       fixture_set_sha256: pilotFixtureSetSha256V1(refs),
       protocol_sha256: pilotProtocolSha256V1({
         claim,
@@ -223,6 +273,7 @@ test("case and plan bind exact data with a three-case Latin square", () => {
         arms: PILOT_ARMS_V1,
         promotion_gate: promotionGate,
       }),
+      runner_authority_public_key_principal_sha256: SHA_B,
     },
     model_protocol: modelProtocol,
     arms: PILOT_ARMS_V1,

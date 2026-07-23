@@ -47,6 +47,7 @@ const EVIDENCE_KEYS = Object.freeze([
 ]);
 
 const CELL_EXECUTION_REF_KEYS = Object.freeze([
+  "arm",
   "case_id",
   "case_sha256",
   "contract_sha256",
@@ -157,16 +158,24 @@ function verifyCellExecutionRef(value) {
     CELL_EXECUTION_REF_KEYS,
     "verifier_cell_execution_ref",
   );
-  for (const field of ["pilot_id", "opaque_cell_id", "case_id", "decision_id"]) {
+  for (const field of ["pilot_id", "opaque_cell_id", "case_id"]) {
     expectText(record[field], `verifier_cell_${field}`);
   }
-  for (const field of [
-    "case_sha256",
-    "contract_sha256",
-    "render_result_sha256",
-    "exposure_event_sha256",
-  ]) {
-    expectSha256(record[field], `verifier_cell_${field}`);
+  expectSha256(record.case_sha256, "verifier_cell_case_sha256");
+  if (!new Set(["baseline", "observe_only", "treatment"]).has(record.arm)) {
+    fail("cell_arm_invalid");
+  }
+  const runtimeFields = [
+    "contract_sha256", "render_result_sha256", "exposure_event_sha256",
+  ];
+  if (record.arm === "treatment") {
+    expectText(record.decision_id, "verifier_cell_decision_id");
+    for (const field of runtimeFields) {
+      expectSha256(record[field], `verifier_cell_${field}`);
+    }
+  } else if (record.decision_id !== null
+    || runtimeFields.some((field) => record[field] !== null)) {
+    fail("control_runtime_ref_present");
   }
 }
 

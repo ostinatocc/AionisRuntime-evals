@@ -19,5 +19,5 @@ test("CI integration checkout is pinned to the Runtime V1 lock", () => {
     .map((match) => match[1]);
   assert.deepEqual(refs, [lock.runtime_git_commit_sha]);
   assert.match(workflow, /repository: ostinatocc\/Aionis$/mu);
-  assert.doesNotMatch(workflow, /OPENROUTER_API_KEY|secrets\./u);
+  assert.doesNotMatch(workflow, /DEEPSEEK_API_KEY|OPENROUTER_API_KEY|secrets\./u);
 });

@@ -106,6 +106,7 @@ export function buildTestPilotCaseV1(options) {
   return buildPilotCaseV1({
     case_id: caseId,
     source_fixture: {
+      digest_encoding: "raw_bytes_sha256_v1",
       relative_path: `fixtures/v1/${caseId}.json`,
       fixture_sha256: fixtureSha256,
       trap_id: `${caseId}-trap`,
@@ -114,7 +115,9 @@ export function buildTestPilotCaseV1(options) {
     workspace: {
       repository_url: "https://github.com/example/project.git",
       base_commit_sha: "a".repeat(40),
+      prepared_tree_encoding: "aionis_pilot_workspace_projection_v1",
       prepared_tree_sha256: workspaceSha256,
+      clean_status_encoding: "git_status_porcelain_v1_z_sha256_v1",
       clean_status_sha256: digest(`${caseId}:clean-status`),
     },
     public_agent_input: {
