@@ -31,6 +31,7 @@ test("formal abort signer replays a burned partial ledger and seals it as non-re
   ];
   const cases = verifierKeys.map((keys, index) => buildTestPilotCaseV1({
     caseId: `abort-signer-${index + 1}`,
+    verifierPrivateKey: keys.privateKey,
     verifierPublicKey: keys.publicKey,
   }));
   const plan = buildTestPilotPlanV1(cases, {
@@ -137,6 +138,7 @@ test("owner cleanup failure can only produce a signed claim-ineligible abort", a
   const verifierKeys = [1, 2, 3].map(() => generateKeyPairSync("ed25519"));
   const cases = verifierKeys.map((keys, index) => buildTestPilotCaseV1({
     caseId: `owner-cleanup-abort-${index + 1}`,
+    verifierPrivateKey: keys.privateKey,
     verifierPublicKey: keys.publicKey,
   }));
   const plan = buildTestPilotPlanV1(cases, {

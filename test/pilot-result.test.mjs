@@ -143,6 +143,7 @@ async function makePlanFixture() {
   ];
   const cases = keys.map((key, index) => buildTestPilotCaseV1({
     caseId: `pilot-result-case-${index + 1}`,
+    verifierPrivateKey: key.privateKey,
     verifierPublicKey: key.publicKey,
     workspaceSha256: workspace.workspace_sha256,
   }));

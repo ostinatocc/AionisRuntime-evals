@@ -18,6 +18,9 @@ import {
   verifyPilotCaseV1,
   verifyPilotPlanV1,
 } from "../src/pilot-contract.mjs";
+import {
+  buildTestPriorVerifiedStateV1,
+} from "./support/pilot-fixture.mjs";
 
 const SHA = "a".repeat(64);
 const SHA_B = "b".repeat(64);
@@ -61,6 +64,14 @@ test("cell policy bundle set is ordered and binds all nine isolated scopes", () 
 
 function pilotCase(id) {
   const prompt = `Complete public task ${id}.`;
+  const priorVerifiedState = buildTestPriorVerifiedStateV1({
+    caseId: id,
+    observedAt: "2026-07-22T00:00:00.000Z",
+    fixtureSha256: SHA,
+    sourceTaskSha256: SHA,
+    workspaceSha256: SHA,
+  });
+  const sourceEvidenceSha256 = priorVerifiedState.signed_evidence_sha256;
   const events = [{
     schema_version: "aionis_pilot_episode_evidence_event_v1",
     event_id: `${id}-event-1`,
@@ -69,7 +80,7 @@ function pilotCase(id) {
     observed_at: "2026-07-22T00:00:00.000Z",
     statement: "The prior verifier accepted the active branch.",
     target_refs: [{ kind: "memory", ref: `${id}-active-branch` }],
-    source_evidence_sha256: SHA_B,
+    source_evidence_sha256: sourceEvidenceSha256,
   }];
   const obligations = [{
     obligation_id: `${id}-required-state`,
@@ -94,7 +105,7 @@ function pilotCase(id) {
       workflow_signature: null,
       workspace_signature: `${id}-workspace-signature`,
       source_task_sha256: SHA,
-      source_event_sha256: SHA_B,
+      source_event_sha256: sourceEvidenceSha256,
       issued_at: "2026-07-22T00:00:00.000Z",
       expires_at: "2026-07-23T00:00:00.000Z",
     },
@@ -136,7 +147,7 @@ function pilotCase(id) {
         version: "1.0.0",
         presence: "present",
       },
-      evidence_sha256: SHA_B,
+      evidence_sha256: sourceEvidenceSha256,
     }],
     signed_observations: [],
   };
@@ -152,7 +163,7 @@ function pilotCase(id) {
       relative_path: `fixtures/v1/${id}.json`,
       fixture_sha256: SHA,
       trap_id: `${id}-trap`,
-      source_evidence_sha256: SHA_B,
+      source_evidence_sha256: sourceEvidenceSha256,
     },
     workspace: {
       repository_url: "https://github.com/example/project.git",
@@ -172,6 +183,7 @@ function pilotCase(id) {
       event_stream: events,
       event_stream_sha256: canonicalSha256(events),
       event_count: events.length,
+      prior_verified_state: priorVerifiedState,
       translation_contract_sha256: SHA,
     },
     runtime_input: {
@@ -187,7 +199,8 @@ function pilotCase(id) {
       verifier_id: `${id}-verifier`,
       verifier_contract_sha256: SHA,
       verifier_config_sha256: SHA_B,
-      verifier_public_key_principal_sha256: SHA,
+      verifier_public_key_principal_sha256:
+        priorVerifiedState.signed_evidence.verifier_public_key_principal_sha256,
       verifier_image_digest: `sha256:${SHA}`,
       require_fresh_process: true,
       require_after_agent_exit: true,

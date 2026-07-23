@@ -442,6 +442,7 @@ async function scenario(options) {
     });
     const pilotCase = buildTestPilotCaseV1({
       caseId: options.caseId,
+      verifierPrivateKey: keys.privateKey,
       verifierPublicKey: keys.publicKey,
       verifierContractSha256: OCI_PRIVATE_VERIFIER_CONTRACT_SHA256_V1,
       verifierConfigSha256: ociPrivateVerifierConfigSha256V1(config),
@@ -707,6 +708,18 @@ test("OCI verifier enforces the combined stdout/stderr byte limit and cleans up"
 
 test("OCI verifier refuses mutable image tags, fake release engines, and changed executables", async () => {
   const sha = `sha256:${digest("mutable-image")}`;
+  assert.equal(buildOciPrivateVerifierConfigV1({
+    verifierId: "immutable-local-image-verifier",
+    verifierImageDigest: sha,
+    verifierImageReference: sha,
+    checks: [{
+      check_id: "check",
+      argv: ["/bin/true"],
+      timeout_ms: 1_000,
+      output_limit_bytes: 1_024,
+      metric_mapping: { passed: PASSED_METRICS, failed: FAILED_METRICS },
+    }],
+  }).verifier_image_reference, sha);
   assert.throws(() => buildOciPrivateVerifierConfigV1({
     verifierId: "invalid-image-verifier",
     verifierImageDigest: sha,

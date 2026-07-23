@@ -39,6 +39,7 @@ async function fixture(root) {
     const keys = generateKeyPairSync("ed25519");
     return buildTestPilotCaseV1({
       caseId,
+      verifierPrivateKey: keys.privateKey,
       verifierPublicKey: keys.publicKey,
       workspaceSha256: preparedWorkspace.workspace_sha256,
     });

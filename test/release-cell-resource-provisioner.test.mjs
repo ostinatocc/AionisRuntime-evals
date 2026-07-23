@@ -54,6 +54,7 @@ test("caller-shaped owner objects cannot inject release brokers or cleanup capab
     });
     const cases = configs.map((config, index) => buildTestPilotCaseV1({
       caseId: `provisioner-${index + 1}`,
+      verifierPrivateKey: caseKeys[index].privateKey,
       verifierPublicKey: caseKeys[index].publicKey,
       verifierConfigSha256: canonicalSha256(config),
       verifierContractSha256: OCI_PRIVATE_VERIFIER_CONTRACT_SHA256_V1,

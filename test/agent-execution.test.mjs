@@ -24,6 +24,7 @@ test("agent action executes one bounded diff in a fresh process and emits a boun
     const keys = generateKeyPairSync("ed25519");
     const pilotCase = buildTestPilotCaseV1({
       caseId: "agent-execution-case",
+      verifierPrivateKey: keys.privateKey,
       verifierPublicKey: keys.publicKey,
     });
     const cell = buildPilotCellV1({
@@ -91,6 +92,7 @@ test("invalid model output is rejected by the executor without mutating the work
     const keys = generateKeyPairSync("ed25519");
     const pilotCase = buildTestPilotCaseV1({
       caseId: "agent-reject-case",
+      verifierPrivateKey: keys.privateKey,
       verifierPublicKey: keys.publicKey,
     });
     const cell = buildPilotCellV1({
@@ -130,6 +132,7 @@ test("execution authority rejects a same-content inode replacement", async () =>
     const keys = generateKeyPairSync("ed25519");
     const pilotCase = buildTestPilotCaseV1({
       caseId: "agent-identity-case",
+      verifierPrivateKey: keys.privateKey,
       verifierPublicKey: keys.publicKey,
     });
     const cell = buildPilotCellV1({

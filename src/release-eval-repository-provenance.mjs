@@ -218,6 +218,7 @@ async function runTrustedGit(authority, repositoryRoot, args, operation) {
       LANG: "C",
       LC_ALL: "C",
       PATH: "/usr/bin:/bin",
+      TMPDIR: "/tmp",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

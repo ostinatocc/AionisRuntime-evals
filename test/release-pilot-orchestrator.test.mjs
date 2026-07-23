@@ -296,7 +296,7 @@ async function writeWorkspace(root, caseId) {
   return fixture;
 }
 
-async function realWorkspaceFixture(root, gitExecutable, caseId, verifierPublicKey) {
+async function realWorkspaceFixture(root, gitExecutable, caseId, verifierKeys) {
   const template = path.join(root, "templates", caseId);
   const projection = path.join(root, "projections", caseId);
   await mkdir(template, { recursive: true, mode: 0o700 });
@@ -318,7 +318,8 @@ async function realWorkspaceFixture(root, gitExecutable, caseId, verifierPublicK
   const base = buildTestPilotCaseV1({
     caseId,
     fixtureSha256: sha256Bytes(fixture),
-    verifierPublicKey,
+    verifierPrivateKey: verifierKeys.privateKey,
+    verifierPublicKey: verifierKeys.publicKey,
     workspaceSha256: evidence.workspace_sha256,
   });
   const body = canonicalClone(base);
@@ -346,7 +347,7 @@ test("orchestration cleanup disposes a real opaque workspace owner idempotently"
     const verifier = generateKeyPairSync("ed25519");
     const built = [];
     for (const caseId of ["cleanup-one", "cleanup-two", "cleanup-three"]) {
-      built.push(await realWorkspaceFixture(root, gitExecutable, caseId, verifier.publicKey));
+      built.push(await realWorkspaceFixture(root, gitExecutable, caseId, verifier));
     }
     const cases = built.map((entry) => entry.pilotCase);
     const plan = buildTestPilotPlanV1(cases, {

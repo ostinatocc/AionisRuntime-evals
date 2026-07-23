@@ -102,6 +102,7 @@ async function frozenSignerFixture() {
   const verifierKeys = Array.from({ length: 3 }, () => generateKeyPairSync("ed25519"));
   const cases = verifierKeys.map((keys, index) => buildTestPilotCaseV1({
     caseId: `signer-provenance-${index + 1}`,
+    verifierPrivateKey: keys.privateKey,
     verifierPublicKey: keys.publicKey,
   }));
   const initial = buildTestPilotPlanV1(cases, {

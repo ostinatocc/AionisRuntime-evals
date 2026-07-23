@@ -469,6 +469,7 @@ test("executable pilot runner seals one offline 3x3 run through real child bound
     });
     const cases = verifierKeys.map((keys, index) => buildTestPilotCaseV1({
       caseId: `executable-pilot-case-${index + 1}`,
+      verifierPrivateKey: keys.privateKey,
       verifierPublicKey: keys.publicKey,
       verifierContractSha256: OCI_PRIVATE_VERIFIER_CONTRACT_SHA256_V1,
       verifierConfigSha256: ociPrivateVerifierConfigSha256V1(verifierConfigs[index]),

@@ -24,6 +24,21 @@ cells share that exact protocol. Provider credentials are runtime secrets and
 must never enter a plan, receipt, ledger event, report, workspace, or CI
 configuration.
 
+Before freezing the nine-call pilot, the live provider contract can be checked
+with one unscored request:
+
+```bash
+chmod 0600 "/absolute/path/to/deepseek-api-key"
+exec {DEEPSEEK_FD}<"/absolute/path/to/deepseek-api-key"
+npm run -s provider:smoke -- --deepseek-key-fd "$DEEPSEEK_FD"
+```
+
+The CLI accepts no plaintext-key or key-path argument, uses the platform
+`fetch`, performs no retry, and emits one canonical receipt without raw prompt,
+response, or credential content. The receipt always has
+`claim_eligible=false`; it proves only the provider/model contract, never
+Aionis product effect.
+
 ## Development
 
 ```bash
@@ -35,6 +50,67 @@ npm run check
 checkout and its locally packed `@aionis/continuation-sdk`. The integration
 gate uses real signed policy provisioning, a real SQLite authority, and real
 HTTP SDK traffic. It does not call an external model.
+
+Freeze the formal artifacts from a canonical non-secret blueprint only after
+both repositories and the locked Runtime authority closure are clean:
+
+```bash
+cp config/release-pilot-blueprint.example.canonical.json \
+  /absolute/path/to/release-pilot-blueprint.canonical.json
+# Replace every /absolute placeholder and image digest, then rewrite the file
+# as one canonical JSON line.
+exec {ROOT_FD}<"/absolute/path/to/root-private.pem"
+npm run -s pilot:freeze-release -- \
+  --blueprint /absolute/path/to/release-pilot-blueprint.canonical.json \
+  --output /absolute/path/to/fresh-0700-freeze-root \
+  --root-signing-key-fd "$ROOT_FD"
+```
+
+The freezer emits three small audited Git templates, three case artifacts, the
+Latin-square plan, three OCI verifier configurations, nine root-signed cell
+policy commands, runner/verifier public artifacts, and the non-secret
+orchestration config. It creates fresh Ed25519 runner, three verifier, and
+future-effect private keys under the caller-selected `0700` root with mode
+`0600`; none of their bytes or paths enters the public config. The three
+single-action cases use neutral A/B display, environment, and credential
+selectors; accepted directions are balanced as closely as three cases permit.
+The public prompt contains the complete relevant source tree but not the prior
+verifier verdict; only treatment receives that accepted-path evidence through
+Aionis.
+
+The prior evidence explicitly has
+`source_kind=preseeded_verified_state`: it does not claim an episode-1 LLM
+action. During freezing, a private preseeded workspace contains the accepted
+state, each semantic check runs in a fresh host Node subprocess that reads the
+target only as inert text, and the case verifier key signs the resulting
+canonical receipt. The freezer then independently recomputes the workspace,
+source, host executable, configured check-set, and actual execution-argv
+digests before binding that full signed-receipt digest into the source fixture,
+episode event, Runtime host task, and collector observation.
+
+The frozen post-agent OCI verifier uses the same four static checks and never
+imports or executes an agent-modified module. Those checks report completion,
+accepted direction, prohibited-branch writes, and unsafe direct use. Their
+line-break-sensitive lexical digests admit only the frozen source or one exact
+candidate-call implementation, reject comments and hard-coded substitutes,
+and cannot be short-circuited by an agent-written `process.exit(0)`. An
+unchanged `no_safe_change` workspace or malformed source fails completion
+without being mislabeled as unsafe direct use.
+
+Freezing performs zero model requests and zero OCI executions. Its
+`artifact_verified` report proves canonical bindings, not resource readiness
+or product effect. The next command must therefore be the release runner's
+`--preflight-only` resource gate. The example blueprint is deliberately
+non-runnable until all placeholder paths and digests are replaced.
+
+Because Runtime's `dist-authority` and SDK build outputs are intentionally
+ignored by Git, the freezer does not trust their self-description alone. The
+Runtime lock pins the authority manifest bytes, closure, entrypoint, file
+count, authoring module, every manifest-listed file digest, and the exact
+packed SDK SHA-256/SHA-512. All authority files are rechecked before dynamic
+import and again immediately before and after signing. The root private
+`KeyObject` is created only inside that synchronous signing scope; case,
+verifier, SDK, and artifact construction code never receives it.
 
 Frozen pilot artifacts are checked as canonical single-line JSON files:
 

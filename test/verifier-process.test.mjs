@@ -88,6 +88,7 @@ async function scenario(options) {
     });
     const pilotCase = buildTestPilotCaseV1({
       caseId: options.caseId,
+      verifierPrivateKey: keys.privateKey,
       verifierPublicKey: keys.publicKey,
       verifierContractSha256: PRIVATE_VERIFIER_CONTRACT_SHA256_V1,
       verifierConfigSha256: privateVerifierConfigSha256V1(config),

@@ -24,10 +24,14 @@ test("release resource minting is absent from the public authority surface", () 
 });
 
 test("caller-shaped claim-eligible handles cannot mint or claim release resources", async () => {
-  const cases = [1, 2, 3].map((index) => buildTestPilotCaseV1({
-    caseId: `release-authority-private-${index}`,
-    verifierPublicKey: generateKeyPairSync("ed25519").publicKey,
-  }));
+  const cases = [1, 2, 3].map((index) => {
+    const keys = generateKeyPairSync("ed25519");
+    return buildTestPilotCaseV1({
+      caseId: `release-authority-private-${index}`,
+      verifierPrivateKey: keys.privateKey,
+      verifierPublicKey: keys.publicKey,
+    });
+  });
   const plan = buildTestPilotPlanV1(cases, {
     pilotId: "release-cell-resource-authority-private-issuer-test",
   });

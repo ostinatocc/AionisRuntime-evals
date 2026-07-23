@@ -59,7 +59,11 @@ function fixture() {
   const runnerKeys = generateKeyPairSync("ed25519");
   const cases = ["one", "two", "three"].map((caseId) => {
     const verifierKeys = generateKeyPairSync("ed25519");
-    return buildTestPilotCaseV1({ caseId, verifierPublicKey: verifierKeys.publicKey });
+    return buildTestPilotCaseV1({
+      caseId,
+      verifierPrivateKey: verifierKeys.privateKey,
+      verifierPublicKey: verifierKeys.publicKey,
+    });
   });
   const initialPlan = buildTestPilotPlanV1(cases, {
     pilotId: "pilot-runner-signature-test",

@@ -20,6 +20,7 @@ test("baseline performs no Runtime traffic and exposes no Runtime context", asyn
   const keys = generateKeyPairSync("ed25519");
   const pilotCase = buildTestPilotCaseV1({
     caseId: "baseline-case",
+    verifierPrivateKey: keys.privateKey,
     verifierPublicKey: keys.publicKey,
   });
   const cell = buildPilotCellV1({

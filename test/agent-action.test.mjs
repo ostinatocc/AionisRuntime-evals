@@ -40,6 +40,7 @@ test("baseline and observe-only model inputs are byte-identical while treatment 
   const keys = generateKeyPairSync("ed25519");
   const pilotCase = buildTestPilotCaseV1({
     caseId: "agent-input-case",
+    verifierPrivateKey: keys.privateKey,
     verifierPublicKey: keys.publicKey,
   });
   const baseline = buildAgentModelInputV1({

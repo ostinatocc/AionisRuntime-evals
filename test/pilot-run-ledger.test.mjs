@@ -30,10 +30,14 @@ import {
 } from "./support/pilot-plan-fixture.mjs";
 
 function fixture(pilotId = "pilot-durable-ledger-test") {
-  const cases = ["one", "two", "three"].map((caseId) => buildTestPilotCaseV1({
-    caseId: `ledger-${caseId}`,
-    verifierPublicKey: generateKeyPairSync("ed25519").publicKey,
-  }));
+  const cases = ["one", "two", "three"].map((caseId) => {
+    const keys = generateKeyPairSync("ed25519");
+    return buildTestPilotCaseV1({
+      caseId: `ledger-${caseId}`,
+      verifierPrivateKey: keys.privateKey,
+      verifierPublicKey: keys.publicKey,
+    });
+  });
   return { cases, plan: buildTestPilotPlanV1(cases, { pilotId }) };
 }
 

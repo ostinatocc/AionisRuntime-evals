@@ -58,7 +58,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ostinatocc/Aionis
-          ref: 697204d508cae705d2a4671f31126a1807005bfb
+          ref: 4d74cf2b219e6bce9785b2d11f7ea35330802a5a
           path: AionisRuntime-focused
           persist-credentials: false
 

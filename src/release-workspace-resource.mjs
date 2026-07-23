@@ -240,6 +240,7 @@ async function runGit(gitExecutablePath, repositoryPath, args, operation) {
       LANG: "C",
       LC_ALL: "C",
       PATH: "/usr/bin:/bin",
+      TMPDIR: "/tmp",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

@@ -370,6 +370,7 @@ function imageDigest(value, field) {
 
 function imageReference(value, digest, field) {
   expectText(value, field, { maximumBytes: 1_024 });
+  if (value === digest) return value;
   if (!/^[a-z0-9][a-z0-9._/:@-]*@sha256:[0-9a-f]{64}$/u.test(value)
     || !value.endsWith(`@${digest}`)
     || value.indexOf("@") !== value.lastIndexOf("@")) {

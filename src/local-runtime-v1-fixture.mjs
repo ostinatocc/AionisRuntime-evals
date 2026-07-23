@@ -75,6 +75,12 @@ function oneJsonLine(output, field) {
 function readLock(lockPath) {
   const lock = JSON.parse(readFileSync(lockPath, "utf8"));
   expectExactRecord(lock, [
+    "authority_authoring_module_relative_path",
+    "authority_build_closure_sha256",
+    "authority_build_entrypoint",
+    "authority_build_file_count",
+    "authority_build_manifest_file_sha256",
+    "authority_build_manifest_relative_path",
     "oci_closure_manifest_sha256",
     "oci_closure_sha256",
     "oci_image",
@@ -90,6 +96,8 @@ function readLock(lockPath) {
     "sdk_entry_count",
     "sdk_package_name",
     "sdk_package_version",
+    "sdk_tgz_sha256",
+    "sdk_tgz_sha512",
   ], "runtime_lock");
   if (lock.schema_version !== "aionis_eval_runtime_v1_lock_v1") fail("runtime_lock_invalid");
   return lock;
@@ -177,15 +185,21 @@ function prepareSdk(runtimeRoot, root, lock) {
     label: "runtime_sdk_consumer_install",
   });
   const bytes = readFileSync(tarball);
+  const tarballSha256 = createHash("sha256").update(bytes).digest("hex");
+  const tarballSha512 = createHash("sha512").update(bytes).digest("hex");
+  if (tarballSha256 !== lock.sdk_tgz_sha256
+    || tarballSha512 !== lock.sdk_tgz_sha512) {
+    fail("runtime_sdk_tarball_binding_mismatch");
+  }
   return {
     consumer,
     tarball,
-    tarballSha256: createHash("sha256").update(bytes).digest("hex"),
-    tarballSha512: createHash("sha512").update(bytes).digest("hex"),
+    tarballSha256,
+    tarballSha512,
   };
 }
 
-function buildAuthority(runtimeRoot) {
+function buildAuthority(runtimeRoot, lock) {
   const built = run(process.execPath, [
     path.join(runtimeRoot, "tools/build-continuation-runtime-v1-authority.mjs"),
   ], { cwd: runtimeRoot, label: "authority_build", timeout: 300_000 });
@@ -198,6 +212,16 @@ function buildAuthority(runtimeRoot) {
   expectText(event.entrypoint, "authority_build_entrypoint");
   expectPositiveInteger(event.file_count, "authority_build_file_count");
   expectSha256(event.closure_sha256, "authority_build_closure_sha256");
+  const manifestPath = path.join(
+    runtimeRoot,
+    ...lock.authority_build_manifest_relative_path.split("/"),
+  );
+  if (fileSha256(manifestPath) !== lock.authority_build_manifest_file_sha256
+    || event.closure_sha256 !== lock.authority_build_closure_sha256
+    || event.entrypoint !== lock.authority_build_entrypoint
+    || event.file_count !== lock.authority_build_file_count) {
+    fail("authority_build_lock_mismatch");
+  }
   return event;
 }
 
@@ -428,7 +452,7 @@ export async function prepareLocalRuntimeV1FixtureAuthorityV1(options) {
   try {
     const sdkArtifact = prepareSdk(runtimeRoot, root, lock);
     const sdk = await loadPackedContinuationSdk(sdkArtifact.consumer);
-    const authorityBuild = buildAuthority(runtimeRoot);
+    const authorityBuild = buildAuthority(runtimeRoot, lock);
     const authority = authorityMaterial(runtimeRoot, root);
     const cellsDirectory = path.join(root, "cells");
     createPrivateDirectory(cellsDirectory);

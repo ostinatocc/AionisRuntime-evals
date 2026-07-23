@@ -129,10 +129,14 @@ async function fixture(t, marker = "A", options = {}) {
   const tarball = options.tarball ?? packTar(files, options.tarOptions);
   const sdkTarballPath = path.join(root, "sdk.tgz");
   await writeFile(sdkTarballPath, tarball, { mode: 0o600 });
-  const cases = [1, 2, 3].map((index) => buildTestPilotCaseV1({
-    caseId: `sdk-formal-${index}`,
-    verifierPublicKey: generateKeyPairSync("ed25519").publicKey,
-  }));
+  const cases = [1, 2, 3].map((index) => {
+    const keys = generateKeyPairSync("ed25519");
+    return buildTestPilotCaseV1({
+      caseId: `sdk-formal-${index}`,
+      verifierPrivateKey: keys.privateKey,
+      verifierPublicKey: keys.publicKey,
+    });
+  });
   return {
     root,
     consumerRoot,
@@ -155,10 +159,14 @@ function client() {
 }
 
 test("formal Runtime resolver rejects non-release SDK capability before it can create a client", () => {
-  const cases = [1, 2, 3].map((index) => buildTestPilotCaseV1({
-    caseId: `sdk-authority-${index}`,
-    verifierPublicKey: generateKeyPairSync("ed25519").publicKey,
-  }));
+  const cases = [1, 2, 3].map((index) => {
+    const keys = generateKeyPairSync("ed25519");
+    return buildTestPilotCaseV1({
+      caseId: `sdk-authority-${index}`,
+      verifierPrivateKey: keys.privateKey,
+      verifierPublicKey: keys.publicKey,
+    });
+  });
   const plan = buildTestPilotPlanV1(cases, { pilotId: "release-sdk-authority-test" });
   let factoryCalls = 0;
   const nonRelease = issueNonReleaseSdkClientAuthorityForTestV1({

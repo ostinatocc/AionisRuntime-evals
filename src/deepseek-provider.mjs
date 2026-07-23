@@ -16,7 +16,7 @@ import {
   expectText,
   sha256Bytes,
 } from "./canonical.mjs";
-import { verifyPilotCellV1 } from "./pilot-contract.mjs";
+import { buildPilotCellV1, verifyPilotCellV1 } from "./pilot-contract.mjs";
 import {
   DEEPSEEK_ENDPOINT_V1,
   DEEPSEEK_MODEL_V1,
@@ -28,6 +28,7 @@ import {
   verifyDeepSeekModelProtocolV1,
 } from "./deepseek-model-protocol.mjs";
 import {
+  createNonReleaseProviderContractAuthorityV1,
   reserveProviderAttemptV1,
   snapshotProviderAttemptAuthorityV1,
 } from "./pilot-run-ledger.mjs";
@@ -50,11 +51,41 @@ export const DEEPSEEK_API_KEY_FD_MIN_BYTES_V1 = 8;
 export const DEEPSEEK_API_KEY_FD_MAX_BYTES_V1 = 512;
 
 const modulePath = fileURLToPath(import.meta.url);
+const PLATFORM_FETCH_V1 = typeof globalThis.fetch === "function"
+  ? globalThis.fetch.bind(globalThis)
+  : null;
+const PLATFORM_DATE_V1 = Date;
 const API_KEY_ATTESTATION_CHILD_MODE = "--deepseek-api-key-attestation-child";
 const API_KEY_ATTESTATION_TIMEOUT_MS = 30_000;
 const API_KEY_ATTESTATION_OUTPUT_LIMIT_BYTES = 65_536;
 const API_KEY_ATTESTATION_SCHEMA_VERSION =
   "aionis_deepseek_api_key_attestation_receipt_v1";
+const PROVIDER_CONTRACT_SMOKE_SCHEMA_VERSION =
+  "aionis_deepseek_provider_contract_smoke_receipt_v1";
+const PROVIDER_CONTRACT_SMOKE_MAX_TOKENS = 8_192;
+const PROVIDER_CONTRACT_SMOKE_MARKER = "ok";
+const PROVIDER_CONTRACT_SMOKE_MESSAGES = Object.freeze([
+  Object.freeze({
+    role: "system",
+    content: "Return only the requested JSON object, with no markdown or additional keys.",
+  }),
+  Object.freeze({
+    role: "user",
+    content:
+      'Aionis provider contract smoke. Return exactly {"aionis_provider_contract":"ok"}.',
+  }),
+]);
+const PROVIDER_CONTRACT_SMOKE_TRANSPORT_EVIDENCE_KEYS = Object.freeze([
+  "assistant_content_sha256",
+  "canonical_request_sha256",
+  "failure_class",
+  "http_status",
+  "outcome",
+  "provider_contract_marker_verified",
+  "request_receipt_sha256",
+  "response_body_sha256",
+  "response_receipt_sha256",
+]);
 
 const REQUEST_RECEIPT_KEYS = Object.freeze([
   "attempt_ordinal",
@@ -1115,6 +1146,163 @@ export function createDeepSeekProviderV1(options, cancellationAuthorityValue = n
       });
     },
   });
+}
+
+function deepSeekProviderContractSmokeModelProtocolV1() {
+  return verifyDeepSeekModelProtocolV1({
+    provider: "deepseek",
+    endpoint: DEEPSEEK_ENDPOINT_V1,
+    requested_model: DEEPSEEK_MODEL_V1,
+    thinking_mode: DEEPSEEK_THINKING_MODE_V1,
+    reasoning_effort: DEEPSEEK_REASONING_EFFORT_V1,
+    response_format: DEEPSEEK_RESPONSE_FORMAT_V1,
+    max_tokens: PROVIDER_CONTRACT_SMOKE_MAX_TOKENS,
+    retries: 0,
+    scored_agent_execution_count: DEEPSEEK_SCORED_ATTEMPT_LIMIT_V1,
+    maximum_provider_request_attempt_count: DEEPSEEK_SCORED_ATTEMPT_LIMIT_V1,
+    immutable_snapshot: false,
+    provider_may_update_weights: true,
+  });
+}
+
+function providerContractMarkerVerified(content) {
+  try {
+    const value = expectExactRecord(
+      JSON.parse(content),
+      ["aionis_provider_contract"],
+      "provider_contract_smoke_marker",
+    );
+    return value.aionis_provider_contract === PROVIDER_CONTRACT_SMOKE_MARKER;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Internal transport seam for deterministic contract tests. Formal callers
+ * must use runDeepSeekProviderContractSmokeV1, which does not accept a fetch
+ * implementation or plaintext credential.
+ */
+export async function executeDeepSeekProviderContractSmokeTransportV1(options) {
+  const input = expectExactRecord(options, [
+    "apiKey", "clock", "fetchImpl",
+  ], "provider_contract_smoke_transport_options");
+  if (typeof input.fetchImpl !== "function") fail("contract_smoke_fetch_impl_invalid");
+  if (typeof input.clock !== "function") fail("contract_smoke_clock_invalid");
+  const protocol = deepSeekProviderContractSmokeModelProtocolV1();
+  const pilotId = "deepseek-provider-contract-smoke";
+  const cell = buildPilotCellV1({
+    pilot_id: pilotId,
+    ordinal: 1,
+    opaque_cell_id: "provider-contract-smoke-cell",
+    case_id: "provider-contract-smoke",
+    case_sha256: canonicalSha256({
+      schema_version: "aionis_deepseek_provider_contract_smoke_case_v1",
+    }),
+    arm: "baseline",
+  });
+  // The ephemeral non-release authority reuses the production transport and
+  // receipt verifier without reserving any formal pilot or scored ledger cell.
+  const provider = createDeepSeekProviderV1({
+    apiKey: input.apiKey,
+    attemptAuthority: createNonReleaseProviderContractAuthorityV1([cell]),
+    clock: input.clock,
+    fetchImpl: input.fetchImpl,
+    modelProtocol: protocol,
+    pilotId,
+  });
+  const result = await provider.executeScoredRequest({
+    cell,
+    messages: PROVIDER_CONTRACT_SMOKE_MESSAGES,
+  });
+  const response = result.response_receipt;
+  const markerVerified = result.outcome === "completed"
+    && providerContractMarkerVerified(result.assistant_message.content);
+  return canonicalClone({
+    canonical_request_sha256: response.canonical_request_sha256,
+    request_receipt_sha256: result.request_receipt.request_receipt_sha256,
+    response_receipt_sha256: response.response_receipt_sha256,
+    http_status: response.http_status,
+    response_body_sha256: response.response_body_sha256,
+    assistant_content_sha256: response.assistant_content_sha256,
+    provider_contract_marker_verified: markerVerified,
+    outcome: markerVerified ? "provider_contract_verified" : "inconclusive",
+    failure_class: markerVerified
+      ? "none"
+      : result.outcome === "completed"
+        ? "provider_contract_marker"
+        : response.failure_class,
+  });
+}
+
+export function buildDeepSeekProviderContractSmokeReceiptV1(transportEvidence) {
+  const evidence = expectExactRecord(
+    transportEvidence,
+    PROVIDER_CONTRACT_SMOKE_TRANSPORT_EVIDENCE_KEYS,
+    "provider_contract_smoke_transport_evidence",
+  );
+  const protocol = deepSeekProviderContractSmokeModelProtocolV1();
+  const body = {
+    schema_version: PROVIDER_CONTRACT_SMOKE_SCHEMA_VERSION,
+    claim_eligible: false,
+    claim_ineligibility_reason: "single_unscored_provider_contract_smoke",
+    scored_request: false,
+    provider_request_attempt_count: 1,
+    credential_transport: "caller_opened_private_regular_file_fd",
+    credential_recorded: false,
+    raw_content_recorded: false,
+    endpoint: DEEPSEEK_ENDPOINT_V1,
+    requested_model: DEEPSEEK_MODEL_V1,
+    model_protocol_sha256: deepSeekModelProtocolSha256V1(protocol),
+    request_timeout_ms: DEEPSEEK_REQUEST_TIMEOUT_MS_V1,
+    retries: 0,
+    ...evidence,
+  };
+  return canonicalClone({ ...body, receipt_sha256: canonicalSha256(body) });
+}
+
+export function parseDeepSeekProviderContractSmokeCliArgumentsV1(
+  argvValue,
+  environment = process.env,
+) {
+  const argv = expectArray(argvValue, "provider_contract_smoke_cli_argv", {
+    minimum: 2,
+    maximum: 2,
+  });
+  if (environment === null || typeof environment !== "object"
+    || Array.isArray(environment)) fail("contract_smoke_environment_invalid");
+  const forbiddenEnvironment = new Set([
+    "AIONIS_DEEPSEEK_API_KEY",
+    "DEEPSEEK_API_KEY",
+  ]);
+  if (Object.keys(environment).some((name) =>
+    forbiddenEnvironment.has(name.toUpperCase()))) {
+    fail("contract_smoke_secret_environment_forbidden");
+  }
+  if (argv[0] !== "--deepseek-key-fd"
+    || typeof argv[1] !== "string"
+    || !/^[3-9][0-9]*$/u.test(argv[1])) {
+    fail("contract_smoke_arguments_invalid");
+  }
+  const apiKeyFd = Number(argv[1]);
+  if (!Number.isSafeInteger(apiKeyFd)) fail("contract_smoke_arguments_invalid");
+  return Object.freeze({ apiKeyFd });
+}
+
+export async function runDeepSeekProviderContractSmokeV1(options) {
+  const input = expectExactRecord(
+    options,
+    ["apiKeyFd"],
+    "provider_contract_smoke_options",
+  );
+  if (PLATFORM_FETCH_V1 === null) fail("contract_smoke_platform_fetch_unavailable");
+  const apiKey = readDeepSeekApiKeyFdV1(input.apiKeyFd);
+  const transportEvidence = await executeDeepSeekProviderContractSmokeTransportV1({
+    apiKey,
+    clock: () => new PLATFORM_DATE_V1().toISOString(),
+    fetchImpl: PLATFORM_FETCH_V1,
+  });
+  return buildDeepSeekProviderContractSmokeReceiptV1(transportEvidence);
 }
 
 if (path.resolve(process.argv[1] ?? "") === modulePath

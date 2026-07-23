@@ -178,6 +178,7 @@ async function fixture(t, image) {
   const verifierKeys = Array.from({ length: 3 }, () => generateKeyPairSync("ed25519"));
   const cases = verifierKeys.map((keys, index) => buildTestPilotCaseV1({
     caseId: `release-oci-case-${index + 1}`,
+    verifierPrivateKey: keys.privateKey,
     verifierPublicKey: keys.publicKey,
   }));
   const trustRootSha256 = verifierPublicKeyPrincipalSha256V1(trustRoot.publicKey);

@@ -318,6 +318,7 @@ async function buildScorerFixture() {
     ];
     const cases = keys.map((key, index) => buildTestPilotCaseV1({
       caseId: `pilot-scorer-case-${index + 1}`,
+      verifierPrivateKey: key.privateKey,
       verifierPublicKey: key.publicKey,
       workspaceSha256: workspace.workspace_sha256,
     }));

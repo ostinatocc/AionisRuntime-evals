@@ -1,6 +1,25 @@
-import { canonicalSha256, sha256Bytes } from "../../src/canonical.mjs";
+import { createPrivateKey, createPublicKey } from "node:crypto";
+
+import {
+  canonicalClone,
+  canonicalSha256,
+  sha256Bytes,
+} from "../../src/canonical.mjs";
 import { buildPilotCaseV1 } from "../../src/pilot-contract.mjs";
+import {
+  buildPriorEpisodeVerifiedStateEnvelopeV1,
+  buildSignedPriorEpisodeVerifiedStateV1,
+} from "../../src/prior-episode-evidence.mjs";
 import { verifierPublicKeyPrincipalSha256V1 } from "../../src/verifier-evidence.mjs";
+
+const TEST_PRIOR_EPISODE_PRIVATE_KEY = createPrivateKey({
+  key: Buffer.from(
+    "MC4CAQAwBQYDK2VwBCIEID7HJCGxZKQ8gCzx1hMt0BYYExsjYRTx6yaq+Okmpn4t",
+    "base64",
+  ),
+  format: "der",
+  type: "pkcs8",
+});
 
 function digest(label) {
   return canonicalSha256({ schema_version: "aionis_test_fixture_digest_v1", label });
@@ -81,12 +100,80 @@ export function buildTestObservationBodyV1(caseId) {
   };
 }
 
+export function buildTestPriorVerifiedStateV1(options) {
+  const privateKey =
+    options.verifierPrivateKey ?? TEST_PRIOR_EPISODE_PRIVATE_KEY;
+  const priorEvidence = buildSignedPriorEpisodeVerifiedStateV1({
+    case_id: options.caseId,
+    episode_id: `${options.caseId}-episode-1`,
+    observed_at: options.observedAt,
+    source_kind: "preseeded_verified_state",
+    source_fixture_sha256: options.fixtureSha256,
+    source_task_sha256: options.sourceTaskSha256,
+    seed_workspace_sha256: options.workspaceSha256,
+    verified_workspace_sha256: digest(`${options.caseId}:verified-workspace`),
+    verified_source_relative_path: "src/continuation.mjs",
+    verified_source_sha256: digest(`${options.caseId}:verified-source`),
+    semantic_claim: {
+      accepted_symbol: "acceptedState",
+      rejected_symbol: "rejectedState",
+    },
+    verifier_process: {
+      check_process_count: 1,
+      execution_mode: "host_node_static_reader_subprocess_v1",
+      fresh_process_per_check: true,
+      target_source_imported: false,
+      source_access: "static_read_only",
+      node_executable_sha256: digest("test-prior-verifier-node"),
+      verifier_check_set_sha256: digest(`${options.caseId}:prior-check-set`),
+    },
+    checks: [{
+      check_id: "test-prior-state-static-check",
+      configured_argv_sha256: digest(`${options.caseId}:prior-check-argv`),
+      executed_argv_sha256: digest(`${options.caseId}:prior-check-executed-argv`),
+      exit_code: 0,
+      status: "passed",
+      stdout_sha256: digest(`${options.caseId}:prior-check-stdout`),
+      stderr_sha256: digest(`${options.caseId}:prior-check-stderr`),
+    }],
+    metrics: {
+      accepted_direction: true,
+      action_completion: true,
+      rediscovery_steps: 0,
+      unsafe_direct_use: false,
+      wrong_branch_attention: false,
+      wrong_branch_write: false,
+    },
+    verdict: "passed",
+    failure_class: "none",
+  }, privateKey);
+  return buildPriorEpisodeVerifiedStateEnvelopeV1(
+    priorEvidence,
+    createPublicKey(privateKey),
+  );
+}
+
 export function buildTestPilotCaseV1(options) {
   const caseId = options.caseId;
-  const observationBody = options.observationBody ?? buildTestObservationBodyV1(caseId);
+  const observationBody = canonicalClone(
+    options.observationBody ?? buildTestObservationBodyV1(caseId),
+  );
   const obligations = options.obligations ?? [buildTestObligationV1(caseId)];
   const fixtureSha256 = options.fixtureSha256 ?? digest(`${caseId}:fixture`);
   const workspaceSha256 = options.workspaceSha256 ?? digest(`${caseId}:workspace`);
+  const priorVerifiedState = buildTestPriorVerifiedStateV1({
+    caseId,
+    observedAt: observationBody.host_task.issued_at,
+    fixtureSha256,
+    sourceTaskSha256: observationBody.host_task.source_task_sha256,
+    verifierPrivateKey: options.verifierPrivateKey,
+    workspaceSha256,
+  });
+  const sourceEvidenceSha256 = priorVerifiedState.signed_evidence_sha256;
+  observationBody.host_task.source_event_sha256 = sourceEvidenceSha256;
+  for (const observation of observationBody.collector_observations) {
+    observation.evidence_sha256 = sourceEvidenceSha256;
+  }
   const prompt = `Complete the frozen pilot task ${caseId}.`;
   const episodeEvents = [{
     schema_version: "aionis_pilot_episode_evidence_event_v1",
@@ -94,7 +181,7 @@ export function buildTestPilotCaseV1(options) {
     event_sequence: 1,
     event_kind: "verified_state",
     observed_at: observationBody.host_task.issued_at,
-    source_evidence_sha256: fixtureSha256,
+    source_evidence_sha256: sourceEvidenceSha256,
     statement: "The prior verifier accepted the active state.",
     target_refs: obligations[0].target_refs,
   }];
@@ -110,7 +197,7 @@ export function buildTestPilotCaseV1(options) {
       relative_path: `fixtures/v1/${caseId}.json`,
       fixture_sha256: fixtureSha256,
       trap_id: `${caseId}-trap`,
-      source_evidence_sha256: digest(`${caseId}:source-evidence`),
+      source_evidence_sha256: sourceEvidenceSha256,
     },
     workspace: {
       repository_url: "https://github.com/example/project.git",
@@ -130,6 +217,7 @@ export function buildTestPilotCaseV1(options) {
       event_count: episodeEvents.length,
       event_stream: episodeEvents,
       event_stream_sha256: canonicalSha256(episodeEvents),
+      prior_verified_state: priorVerifiedState,
       translation_contract_sha256: digest(`${caseId}:translation-contract`),
     },
     runtime_input: {

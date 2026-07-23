@@ -13,6 +13,8 @@
     "syntax:check": "node src/cli/check-source.mjs",
     "test": "node --test test/*.test.mjs",
     "test:runtime-v1": "node --test test/runtime-v1.integration.mjs",
+    "provider:smoke": "node src/cli/smoke-deepseek-provider.mjs",
+    "pilot:freeze-release": "node src/cli/freeze-release-pilot.mjs",
     "pilot:preflight": "node src/cli/preflight-pilot.mjs",
     "pilot:recover-release": "node src/cli/recover-release-pilot.mjs",
     "pilot:run-release": "node src/cli/run-release-pilot.mjs"

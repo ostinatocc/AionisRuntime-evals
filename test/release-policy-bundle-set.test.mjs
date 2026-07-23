@@ -45,10 +45,14 @@ function signedArtifact(binding, runtime, kind) {
 }
 
 function fixture() {
-  const cases = [1, 2, 3].map((index) => buildTestPilotCaseV1({
-    caseId: `release-policy-${index}`,
-    verifierPublicKey: generateKeyPairSync("ed25519").publicKey,
-  }));
+  const cases = [1, 2, 3].map((index) => {
+    const keys = generateKeyPairSync("ed25519");
+    return buildTestPilotCaseV1({
+      caseId: `release-policy-${index}`,
+      verifierPrivateKey: keys.privateKey,
+      verifierPublicKey: keys.publicKey,
+    });
+  });
   const pilotId = "release-policy-bundle-set-test";
   const initial = buildTestPilotPlanV1(cases, { pilotId });
   const baseBindings = buildTestCellPolicyBindingsV1(cases, {

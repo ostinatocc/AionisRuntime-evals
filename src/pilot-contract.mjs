@@ -12,6 +12,9 @@ import {
   sha256Bytes,
 } from "./canonical.mjs";
 import { verifyDeepSeekModelProtocolV1 } from "./deepseek-model-protocol.mjs";
+import {
+  verifyPriorEpisodeVerifiedStateEnvelopeV1,
+} from "./prior-episode-evidence.mjs";
 
 export const PILOT_ARMS_V1 = Object.freeze([
   "baseline",
@@ -284,6 +287,7 @@ function verifySourceFixture(value) {
   expectSha256(record.fixture_sha256, "source_fixture_fixture_sha256");
   expectText(record.trap_id, "source_fixture_trap_id");
   expectSha256(record.source_evidence_sha256, "source_fixture_source_evidence_sha256");
+  return record;
 }
 
 function verifyWorkspace(value) {
@@ -306,6 +310,7 @@ function verifyWorkspace(value) {
   gitSha(record.base_commit_sha, "workspace_base_commit_sha");
   expectSha256(record.prepared_tree_sha256, "workspace_prepared_tree_sha256");
   expectSha256(record.clean_status_sha256, "workspace_clean_status_sha256");
+  return record;
 }
 
 function verifyPublicAgentInput(value) {
@@ -336,7 +341,11 @@ function verifyPublicAgentInput(value) {
 
 function verifyEpisodeEvidence(value) {
   const record = expectExactRecord(value, [
-    "event_count", "event_stream", "event_stream_sha256", "translation_contract_sha256",
+    "event_count",
+    "event_stream",
+    "event_stream_sha256",
+    "prior_verified_state",
+    "translation_contract_sha256",
   ], "episode_1_evidence");
   const events = expectArray(record.event_stream, "episode_1_event_stream", {
     minimum: 1,
@@ -389,6 +398,11 @@ function verifyEpisodeEvidence(value) {
     record.translation_contract_sha256,
     "episode_1_translation_contract_sha256",
   );
+  return {
+    events,
+    priorVerifiedState:
+      verifyPriorEpisodeVerifiedStateEnvelopeV1(record.prior_verified_state),
+  };
 }
 
 function verifyRuntimeInput(value) {
@@ -469,6 +483,7 @@ function verifyRuntimeInput(value) {
   if (canonicalSha256(template) !== record.create_continuation_template_sha256) {
     fail("runtime_input_create_continuation_template_sha256_mismatch");
   }
+  return { collectors, task };
 }
 
 function verifyPrivateVerifier(value) {
@@ -513,16 +528,33 @@ export function verifyPilotCaseV1(value) {
     fail("case_schema_invalid");
   }
   expectText(record.case_id, "case_id");
-  verifySourceFixture(record.source_fixture);
-  verifyWorkspace(record.workspace);
+  const sourceFixture = verifySourceFixture(record.source_fixture);
+  const workspace = verifyWorkspace(record.workspace);
   verifyPublicAgentInput(record.public_agent_input);
   if (record.public_agent_input.workspace_projection_sha256
       !== record.workspace.prepared_tree_sha256) {
     fail("case_workspace_projection_binding_invalid");
   }
-  verifyEpisodeEvidence(record.episode_1_evidence);
-  verifyRuntimeInput(record.runtime_input);
+  const episodeEvidence = verifyEpisodeEvidence(record.episode_1_evidence);
+  const runtimeInput = verifyRuntimeInput(record.runtime_input);
   verifyPrivateVerifier(record.private_verifier);
+  const signedEvidence = episodeEvidence.priorVerifiedState.signed_evidence;
+  const signedReceiptSha256 =
+    episodeEvidence.priorVerifiedState.signed_evidence_sha256;
+  if (signedEvidence.case_id !== record.case_id
+    || signedEvidence.verifier_public_key_principal_sha256
+      !== record.private_verifier.verifier_public_key_principal_sha256
+    || signedEvidence.source_fixture_sha256 !== sourceFixture.fixture_sha256
+    || signedEvidence.source_task_sha256 !== runtimeInput.task.source_task_sha256
+    || signedEvidence.seed_workspace_sha256 !== workspace.prepared_tree_sha256
+    || sourceFixture.source_evidence_sha256 !== signedReceiptSha256
+    || episodeEvidence.events.some((event) =>
+      event.source_evidence_sha256 !== signedReceiptSha256)
+    || runtimeInput.task.source_event_sha256 !== signedReceiptSha256
+    || !runtimeInput.collectors.some((observation) =>
+      observation.evidence_sha256 === signedReceiptSha256)) {
+    fail("case_prior_verified_state_binding_invalid");
+  }
   expectSha256(record.case_sha256, "case_sha256");
   const body = Object.fromEntries(Object.entries(record).filter(([key]) => key !== "case_sha256"));
   if (canonicalSha256(body) !== record.case_sha256) fail("case_sha256_mismatch");

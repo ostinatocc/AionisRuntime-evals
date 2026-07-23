@@ -20,7 +20,11 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
-import { canonicalClone, sha256Bytes } from "../src/canonical.mjs";
+import {
+  canonicalClone,
+  canonicalSha256,
+  sha256Bytes,
+} from "../src/canonical.mjs";
 import { buildPilotCaseV1 } from "../src/pilot-contract.mjs";
 import {
   claimReleaseWorkspaceResourceOwnerV1,
@@ -35,7 +39,10 @@ import {
   captureWorkspaceEvidenceV1,
   captureWorkspaceInodeSetV1,
 } from "../src/workspace-evidence.mjs";
-import { buildTestPilotCaseV1 } from "./support/pilot-fixture.mjs";
+import {
+  buildTestPilotCaseV1,
+  buildTestPriorVerifiedStateV1,
+} from "./support/pilot-fixture.mjs";
 import { buildTestPilotPlanV1 } from "./support/pilot-plan-fixture.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -99,6 +106,34 @@ function rebuildCase(pilotCase, overrides = {}) {
   if (overrides.source_fixture !== undefined) {
     body.source_fixture = { ...body.source_fixture, ...overrides.source_fixture };
   }
+  const priorVerifiedState = buildTestPriorVerifiedStateV1({
+    caseId: body.case_id,
+    observedAt:
+      body.episode_1_evidence.prior_verified_state.signed_evidence.observed_at,
+    fixtureSha256: body.source_fixture.fixture_sha256,
+    sourceTaskSha256:
+      body.runtime_input.record_observations_body.host_task.source_task_sha256,
+    verifierPrivateKey: VERIFIER_KEYS.privateKey,
+    workspaceSha256: body.workspace.prepared_tree_sha256,
+  });
+  const sourceEvidenceSha256 = priorVerifiedState.signed_evidence_sha256;
+  body.episode_1_evidence.prior_verified_state = priorVerifiedState;
+  for (const event of body.episode_1_evidence.event_stream) {
+    event.source_evidence_sha256 = sourceEvidenceSha256;
+  }
+  body.episode_1_evidence.event_stream_sha256 = canonicalSha256(
+    body.episode_1_evidence.event_stream,
+  );
+  body.source_fixture.source_evidence_sha256 = sourceEvidenceSha256;
+  body.runtime_input.record_observations_body.host_task.source_event_sha256 =
+    sourceEvidenceSha256;
+  for (const observation of
+    body.runtime_input.record_observations_body.collector_observations) {
+    observation.evidence_sha256 = sourceEvidenceSha256;
+  }
+  body.runtime_input.record_observations_body_sha256 = canonicalSha256(
+    body.runtime_input.record_observations_body,
+  );
   return buildPilotCaseV1(body);
 }
 
@@ -131,6 +166,7 @@ async function buildRealCase(root, gitExecutablePath, caseId) {
   const baseCase = buildTestPilotCaseV1({
     caseId,
     fixtureSha256: sha256Bytes(fixture),
+    verifierPrivateKey: VERIFIER_KEYS.privateKey,
     verifierPublicKey: VERIFIER_KEYS.publicKey,
     workspaceSha256: workspaceEvidence.workspace_sha256,
   });

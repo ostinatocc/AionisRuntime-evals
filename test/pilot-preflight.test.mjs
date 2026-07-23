@@ -12,6 +12,9 @@ import {
   PILOT_ARMS_V1,
 } from "../src/pilot-contract.mjs";
 import { preflightPilotArtifactsV1 } from "../src/pilot-preflight.mjs";
+import {
+  buildTestPriorVerifiedStateV1,
+} from "./support/pilot-fixture.mjs";
 
 const SHA = "1".repeat(64);
 const SHA_B = "2".repeat(64);
@@ -19,13 +22,21 @@ const GIT = "3".repeat(40);
 
 function fixture(id) {
   const prompt = `Complete ${id}.`;
+  const priorVerifiedState = buildTestPriorVerifiedStateV1({
+    caseId: id,
+    observedAt: "2026-07-22T00:00:00.000Z",
+    fixtureSha256: SHA,
+    sourceTaskSha256: SHA,
+    workspaceSha256: SHA,
+  });
+  const sourceEvidenceSha256 = priorVerifiedState.signed_evidence_sha256;
   const stream = [{
     schema_version: "aionis_pilot_episode_evidence_event_v1",
     event_id: id,
     event_sequence: 1,
     event_kind: "verified_state",
     observed_at: "2026-07-22T00:00:00.000Z",
-    source_evidence_sha256: SHA_B,
+    source_evidence_sha256: sourceEvidenceSha256,
     statement: "The prior verifier accepted this state.",
     target_refs: [{ kind: "memory", ref: `${id}-state` }],
   }];
@@ -52,7 +63,7 @@ function fixture(id) {
       workflow_signature: null,
       workspace_signature: `${id}-workspace-signature`,
       source_task_sha256: SHA,
-      source_event_sha256: SHA_B,
+      source_event_sha256: sourceEvidenceSha256,
       issued_at: "2026-07-22T00:00:00.000Z",
       expires_at: "2026-07-23T00:00:00.000Z",
     },
@@ -94,7 +105,7 @@ function fixture(id) {
         version: "1.0.0",
         presence: "present",
       },
-      evidence_sha256: SHA_B,
+      evidence_sha256: sourceEvidenceSha256,
     }],
     signed_observations: [],
   };
@@ -110,7 +121,7 @@ function fixture(id) {
       relative_path: `fixtures/v1/${id}.json`,
       fixture_sha256: SHA,
       trap_id: `${id}-trap`,
-      source_evidence_sha256: SHA_B,
+      source_evidence_sha256: sourceEvidenceSha256,
     },
     workspace: {
       repository_url: "https://github.com/example/project.git",
@@ -130,6 +141,7 @@ function fixture(id) {
       event_count: stream.length,
       event_stream: stream,
       event_stream_sha256: canonicalSha256(stream),
+      prior_verified_state: priorVerifiedState,
       translation_contract_sha256: SHA,
     },
     runtime_input: {
@@ -146,7 +158,8 @@ function fixture(id) {
       verifier_id: `${id}-verifier`,
       verifier_image_digest: `sha256:${SHA_B}`,
       verifier_config_sha256: SHA_B,
-      verifier_public_key_principal_sha256: SHA,
+      verifier_public_key_principal_sha256:
+        priorVerifiedState.signed_evidence.verifier_public_key_principal_sha256,
       require_after_agent_exit: true,
       require_fresh_process: true,
     },
