@@ -268,7 +268,7 @@ test("observe-only and treatment share exact observations while treatment closes
     assert.match(settled.runtime.settlement.ledger_head_event_sha256, /^[0-9a-f]{64}$/u);
     assert.equal(treatmentFixture.binding.cohort_installed, false);
     assert.equal(treatmentFixture.binding.runtime_git_commit_sha,
-      "c6491e58670e9633b04ab069c75164435f49827e");
+      "14575f51c3d2dc3fb557d5716c0c33c00a027165");
   } finally {
     if (observeFixture !== null) await observeFixture.close();
     if (treatmentFixture !== null) await treatmentFixture.close();

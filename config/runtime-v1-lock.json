@@ -2,7 +2,7 @@
   "schema_version": "aionis_eval_runtime_v1_lock_v1",
   "runtime_repository": "https://github.com/ostinatocc/Aionis.git",
   "runtime_directory": "AionisRuntime-focused",
-  "runtime_git_commit_sha": "c6491e58670e9633b04ab069c75164435f49827e",
+  "runtime_git_commit_sha": "14575f51c3d2dc3fb557d5716c0c33c00a027165",
   "runtime_git_tree_sha": "0194bbd9e4517805f3618a07ff3c0ded25465bbe",
   "runtime_package_lock_sha256": "0243d63a91880b5ce70f50a523fc9ac0596e3ef9667c955d7aac10342db7bbe9",
   "schema_manifest_relative_path": "src/store/sql/continuation-runtime-v1.manifest.json",
