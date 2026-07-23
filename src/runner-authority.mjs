@@ -217,16 +217,17 @@ async function verifyCellAuthorities(value, plan, cases) {
     }
     if (canonicalWorkspacePath !== workspacePath
       || canonicalDatabasePath !== databasePath) fail("cell_path_alias_forbidden");
+    const pilotCase = cases.find((candidate) => candidate.case_id === cell.case_id);
+    if (pilotCase === undefined) fail("cell_execution_case_binding_invalid");
     const executionAuthority = await verifyAgentExecutionAuthorityV1(
       authority.agent_execution_authority,
       cell,
+      pilotCase,
     );
     if (executionAuthority.workspace_path !== workspacePath) {
       fail("cell_execution_workspace_binding_invalid");
     }
-    const pilotCase = cases.find((candidate) => candidate.case_id === cell.case_id);
-    if (pilotCase === undefined
-      || executionAuthority.workspace_prepared_sha256
+    if (executionAuthority.workspace_prepared_sha256
         !== pilotCase.workspace.prepared_tree_sha256) {
       fail("cell_execution_prepared_workspace_binding_invalid");
     }

@@ -166,8 +166,10 @@ test("wrong-schema no_safe_change rejection preserves complete static product me
   });
   const receipt = await executeAgentActionV1({
     cell,
+    pilotCase,
     executionAuthority: await buildAgentExecutionAuthorityV1({
       cell,
+      pilotCase,
       workspacePath: root,
       gitExecutablePath: "/usr/bin/git",
     }),

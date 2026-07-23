@@ -45,20 +45,13 @@ function digest(label) {
 
 function assistantAction() {
   return JSON.stringify({
-    schema_version: "aionis_pilot_agent_action_v1",
+    schema_version: "aionis_pilot_agent_action_v2",
     summary: "Apply the independently verifiable state.",
     action: {
-      kind: "apply_unified_diff",
-      patch: [
-        "diff --git a/state.txt b/state.txt",
-        "index 3367afd..c0d0fb4 100644",
-        "--- a/state.txt",
-        "+++ b/state.txt",
-        "@@ -1 +1 @@",
-        "-old",
-        "+accepted",
-        "",
-      ].join("\n"),
+      kind: "replace_text",
+      path: "state.txt",
+      old_text: "old",
+      new_text: "accepted",
     },
   });
 }
@@ -93,6 +86,7 @@ async function scenario(options) {
       verifierContractSha256: PRIVATE_VERIFIER_CONTRACT_SHA256_V1,
       verifierConfigSha256: privateVerifierConfigSha256V1(config),
       verifierImageDigest,
+      verifiedSourceRelativePath: "state.txt",
     });
     const cell = buildPilotCellV1({
       pilot_id: `pilot-${options.caseId}`,
@@ -104,8 +98,10 @@ async function scenario(options) {
     });
     const agentReceipt = await executeAgentActionV1({
       cell,
+      pilotCase,
       executionAuthority: await buildAgentExecutionAuthorityV1({
         cell,
+        pilotCase,
         workspacePath: workspace,
         gitExecutablePath: "/usr/bin/git",
       }),

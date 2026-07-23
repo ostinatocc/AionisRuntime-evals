@@ -59,7 +59,7 @@ async function prepareFirstCell(ledger, plan, pilotCase) {
 function createProvider(plan, ledger, fetchHook = null) {
   let tick = 0;
   const content = JSON.stringify({
-    schema_version: "aionis_pilot_agent_action_v1",
+    schema_version: "aionis_pilot_agent_action_v2",
     summary: "No safe change is required.",
     action: { kind: "no_safe_change", patch: null },
   });

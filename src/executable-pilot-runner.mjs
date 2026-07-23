@@ -482,6 +482,7 @@ async function executePilot(input, transport, cancellationAuthorityValue) {
         try {
           agentReceipt = await executeAgentActionV1({
             cell,
+            pilotCase,
             executionAuthority: resource.executionAuthority,
             assistantContent: providerResult.assistant_message.content,
             providerResponseReceiptSha256:

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { canonicalClone } from "../src/canonical.mjs";
+import { canonicalClone, canonicalSha256 } from "../src/canonical.mjs";
 import { buildAgentExecutionAuthorityV1 } from "../src/agent-execution.mjs";
 import {
   buildNonReleaseContractTestOciRuntimeAuthorityV1,
@@ -70,6 +70,8 @@ async function fixture(root) {
     executablePath: await realpath("/usr/bin/true"),
   });
   for (const [index, cell] of plan.schedule.entries()) {
+    const pilotCase = cases.find((candidate) => candidate.case_id === cell.case_id);
+    assert.notEqual(pilotCase, undefined);
     const policyBinding = cellPolicyBindings[index];
     const runtimeDirectory = path.join(root, `runtime-${index}`);
     const workspacePath = workspacePaths[index];
@@ -82,6 +84,7 @@ async function fixture(root) {
       workspace_path: workspacePath,
       agent_execution_authority: await buildAgentExecutionAuthorityV1({
         cell,
+        pilotCase,
         workspacePath,
         gitExecutablePath: "/usr/bin/git",
       }),
@@ -134,6 +137,25 @@ test("non-release execution manifest preflight binds declared authorities and ni
     assert.equal(result.provider_request_attempt_limit, 9);
     assert.equal(result.cohort_installed, false);
     assert.match(result.manifest_report_sha256, /^[0-9a-f]{64}$/u);
+    for (const [index, cellAuthority] of
+      input.authority.cell_authorities.entries()) {
+      const cell = input.plan.schedule[index];
+      const pilotCase = input.cases.find((candidate) =>
+        candidate.case_id === cell.case_id);
+      assert.equal(
+        cellAuthority.agent_execution_authority.schema_version,
+        "aionis_pilot_agent_execution_authority_v2",
+      );
+      assert.equal(
+        cellAuthority.agent_execution_authority.case_sha256,
+        pilotCase.case_sha256,
+      );
+      assert.equal(
+        cellAuthority.agent_execution_authority.allowed_target_path,
+        pilotCase.episode_1_evidence.prior_verified_state
+          .signed_evidence.verified_source_relative_path,
+      );
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -157,6 +179,14 @@ test("execution manifest preflight fails closed on dirty declarations, missing k
     (value) => {
       value.authority.cell_authorities[0].compiler_policy_ref.artifact_sha256 =
         "f".repeat(64);
+    },
+    (value) => {
+      const authority =
+        value.authority.cell_authorities[0].agent_execution_authority;
+      authority.allowed_target_path = "src/not-signed-by-prior-evidence.mjs";
+      const body = Object.fromEntries(Object.entries(authority)
+        .filter(([key]) => key !== "authority_sha256"));
+      authority.authority_sha256 = canonicalSha256(body);
     },
     ]) {
       const input = canonicalClone(await fixture(path.join(root, `case-${Math.random()}`)));

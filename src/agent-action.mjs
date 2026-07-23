@@ -7,18 +7,7 @@ import {
 } from "./canonical.mjs";
 import { verifyPilotCaseV1, verifyPilotCellV1 } from "./pilot-contract.mjs";
 
-const ACTION_SCHEMA_VERSION = "aionis_pilot_agent_action_v1";
-
-const SYSTEM_INSTRUCTION = [
-  "You are executing one bounded coding action in an isolated evaluation workspace.",
-  "Return exactly one JSON object and no markdown fences or commentary.",
-  "The object must have schema_version, summary, and action.",
-  `schema_version must be exactly ${ACTION_SCHEMA_VERSION}.`,
-  "action must have kind and patch. kind is apply_unified_diff or no_safe_change.",
-  "For apply_unified_diff, patch must be one git-compatible unified diff rooted at the workspace.",
-  "For no_safe_change, patch must be null and summary must state the blocking conflict.",
-  "Do not request tools, another model turn, network access, or hidden context.",
-].join("\n");
+const ACTION_SCHEMA_VERSION = "aionis_pilot_agent_action_v2";
 
 function fail(code) {
   throw new Error(`aionis_eval_agent_action_${code}`);
@@ -66,13 +55,52 @@ function verifyPreparedArm(value, pilotCase) {
   return prepared;
 }
 
+function safeWorkspacePath(value) {
+  if (typeof value !== "string"
+    || Buffer.byteLength(value, "utf8") < 1
+    || Buffer.byteLength(value, "utf8") > 4_096
+    || !/^[A-Za-z0-9._/-]+$/u.test(value)
+    || value.startsWith("/")) {
+    fail("path_invalid");
+  }
+  const segments = value.split("/");
+  if (segments.some((segment) => segment.length === 0
+    || segment === "." || segment === ".." || segment.toLowerCase() === ".git")) {
+    fail("path_invalid");
+  }
+  return value;
+}
+
+function targetPathForCase(pilotCase) {
+  return safeWorkspacePath(
+    pilotCase.episode_1_evidence.prior_verified_state
+      .signed_evidence.verified_source_relative_path,
+  );
+}
+
+function systemInstruction(targetPath) {
+  return [
+    "You are executing one bounded coding action in an isolated evaluation workspace.",
+    "Return exactly one JSON object and no markdown fences or commentary.",
+    "The object must have schema_version, summary, and action.",
+    `schema_version must be exactly ${ACTION_SCHEMA_VERSION}.`,
+    `For a code change, action must be exactly {"kind":"replace_text","path":${JSON.stringify(targetPath)},"old_text":"<exact-existing-text>","new_text":"<replacement-text>"}.`,
+    "Do not return a diff.",
+    `path must be exactly ${targetPath}.`,
+    "old_text must be non-empty, copied verbatim from the provided file, and uniquely identify the intended occurrence.",
+    "new_text must differ from old_text; prefer a non-empty replacement, but use an empty string only when deletion is required.",
+    'If no safe change is possible, action must be exactly {"kind":"no_safe_change","patch":null} and summary must state the blocking conflict.',
+    "Do not request tools, another model turn, network access, or hidden context.",
+  ].join("\n");
+}
+
 export function buildAgentModelInputV1(input) {
   const record = expectExactRecord(input, ["pilotCase", "preparedArm"], "model_input");
   const pilotCase = verifyPilotCaseV1(record.pilotCase);
   const prepared = verifyPreparedArm(record.preparedArm, pilotCase);
   const publicPrompt = pilotCase.public_agent_input.task_prompt;
   const messages = [
-    { role: "system", content: SYSTEM_INSTRUCTION },
+    { role: "system", content: systemInstruction(targetPathForCase(pilotCase)) },
     { role: "user", content: publicPrompt },
   ];
   let runtimeContextSha256 = null;
@@ -97,51 +125,20 @@ export function buildAgentModelInputV1(input) {
   });
 }
 
-function safePatch(value) {
-  if (typeof value !== "string") fail("patch_invalid");
-  const bytes = Buffer.byteLength(value, "utf8");
-  if (bytes < 1 || bytes > 262_144 || value.includes("\u0000")
-    || !value.startsWith("diff --git ") || !value.endsWith("\n")
-    || /(?:^|\n)(?:GIT binary patch|Binary files .+ differ)(?:\n|$)/u.test(value)
-    || /(?:^|\n)(?:old mode|new mode|similarity index|dissimilarity index|rename from|rename to|copy from|copy to|Subproject commit) /u
-      .test(value)
-    || /(?:^|\n)(?:new file mode|deleted file mode) (?:120000|160000)(?:\n|$)/u
-      .test(value)) {
-    fail("patch_invalid");
+function safeReplacementText(value, field, minimumBytes) {
+  const text = expectText(value, field, {
+    controls: true,
+    minimumBytes,
+    maximumBytes: 262_144,
+    trimmed: false,
+  });
+  if (text.includes("\u0000")) {
+    fail(field === "agent_action_old_text" ? "old_text_invalid" : "new_text_invalid");
   }
-  const lines = value.split("\n");
-  const files = [];
-  let current = null;
-  const safePath = (candidate) => /^[A-Za-z0-9._/-]+$/u.test(candidate)
-    && candidate !== ".git" && !candidate.startsWith(".git/")
-    && !candidate.startsWith("/") && !candidate.split("/").includes("..");
-  for (const line of lines) {
-    const match = /^diff --git a\/(.+) b\/(.+)$/u.exec(line);
-    if (match !== null) {
-      if (current !== null) files.push(current);
-      if (match[1] !== match[2] || !safePath(match[1]) || !safePath(match[2])) {
-        fail("patch_path_invalid");
-      }
-      current = { path: match[1], oldHeader: null, newHeader: null };
-    } else if (current !== null && line.startsWith("--- ")) {
-      if (current.oldHeader !== null) fail("patch_path_invalid");
-      current.oldHeader = line.slice(4);
-    } else if (current !== null && line.startsWith("+++ ")) {
-      if (current.newHeader !== null) fail("patch_path_invalid");
-      current.newHeader = line.slice(4);
-    }
-  }
-  if (current !== null) files.push(current);
-  if (files.length === 0 || files.length > 32 || files.some((file) =>
-    !new Set([`a/${file.path}`, "/dev/null"]).has(file.oldHeader)
-      || !new Set([`b/${file.path}`, "/dev/null"]).has(file.newHeader)
-      || (file.oldHeader === "/dev/null" && file.newHeader === "/dev/null"))) {
-    fail("patch_path_invalid");
-  }
-  return value;
+  return text;
 }
 
-export function decodeAgentActionV1(value) {
+export function decodeAgentActionV2(value) {
   let parsed = value;
   if (typeof value === "string") {
     try { parsed = JSON.parse(value); } catch { fail("json_invalid"); }
@@ -156,19 +153,43 @@ export function decodeAgentActionV1(value) {
     controls: true,
     maximumBytes: 8_192,
   });
-  const action = expectExactRecord(record.action, ["kind", "patch"], "agent_action_body");
-  if (action.kind === "apply_unified_diff") {
-    safePatch(action.patch);
-  } else if (action.kind === "no_safe_change") {
-    if (action.patch !== null) fail("no_safe_change_patch_invalid");
+  if (record.action === null || typeof record.action !== "object"
+    || Array.isArray(record.action)) {
+    fail("agent_action_body_shape_invalid");
+  }
+  const kindDescriptor = Object.getOwnPropertyDescriptor(record.action, "kind");
+  if (kindDescriptor === undefined || !("value" in kindDescriptor)) {
+    fail("agent_action_body_shape_invalid");
+  }
+  const kind = kindDescriptor.value;
+  let action;
+  if (kind === "replace_text") {
+    action = expectExactRecord(
+      record.action,
+      ["kind", "new_text", "old_text", "path"],
+      "agent_action_body",
+    );
+    safeWorkspacePath(action.path);
+    const oldText = safeReplacementText(action.old_text, "agent_action_old_text", 1);
+    const newText = safeReplacementText(action.new_text, "agent_action_new_text", 0);
+    if (oldText === newText
+      || Buffer.byteLength(oldText, "utf8") + Buffer.byteLength(newText, "utf8") > 262_144) {
+      fail("replacement_invalid");
+    }
+  } else if (kind === "no_safe_change") {
+    action = expectExactRecord(record.action, ["kind", "patch"], "agent_action_body");
   } else {
     fail("kind_invalid");
   }
-  return canonicalClone(record);
+  const decoded = canonicalClone(record);
+  if (kind === "no_safe_change" && action.patch !== null) {
+    fail("no_safe_change_patch_invalid");
+  }
+  return decoded;
 }
 
-export function agentActionSha256V1(value) {
-  return canonicalSha256(decodeAgentActionV1(value));
+export function agentActionSha256V2(value) {
+  return canonicalSha256(decodeAgentActionV2(value));
 }
 
 export function assistantContentSha256V1(value) {

@@ -112,7 +112,8 @@ export function buildTestPriorVerifiedStateV1(options) {
     source_task_sha256: options.sourceTaskSha256,
     seed_workspace_sha256: options.workspaceSha256,
     verified_workspace_sha256: digest(`${options.caseId}:verified-workspace`),
-    verified_source_relative_path: "src/continuation.mjs",
+    verified_source_relative_path:
+      options.verifiedSourceRelativePath ?? "src/continuation.mjs",
     verified_source_sha256: digest(`${options.caseId}:verified-source`),
     semantic_claim: {
       accepted_symbol: "acceptedState",
@@ -167,6 +168,7 @@ export function buildTestPilotCaseV1(options) {
     fixtureSha256,
     sourceTaskSha256: observationBody.host_task.source_task_sha256,
     verifierPrivateKey: options.verifierPrivateKey,
+    verifiedSourceRelativePath: options.verifiedSourceRelativePath,
     workspaceSha256,
   });
   const sourceEvidenceSha256 = priorVerifiedState.signed_evidence_sha256;

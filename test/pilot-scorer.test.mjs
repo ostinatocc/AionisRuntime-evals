@@ -47,7 +47,7 @@ function addSecond(timestamp) {
 
 function assistantContent(ordinal) {
   return JSON.stringify({
-    schema_version: "aionis_pilot_agent_action_v1",
+    schema_version: "aionis_pilot_agent_action_v2",
     summary: `No safe workspace change for pilot cell ${ordinal}.`,
     action: { kind: "no_safe_change", patch: null },
   });
@@ -360,8 +360,10 @@ async function buildScorerFixture() {
       });
       const agentReceipt = await executeAgentActionV1({
         cell,
+        pilotCase: context.pilotCase,
         executionAuthority: await buildAgentExecutionAuthorityV1({
           cell,
+          pilotCase: context.pilotCase,
           workspacePath: workspacePaths[cell.ordinal - 1],
           gitExecutablePath: "/usr/bin/git",
         }),

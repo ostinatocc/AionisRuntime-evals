@@ -37,7 +37,7 @@ function timestampClock(startSecond = 0) {
 
 function assistantContent(label) {
   return JSON.stringify({
-    schema_version: "aionis_pilot_agent_action_v1",
+    schema_version: "aionis_pilot_agent_action_v2",
     summary: `No safe change for ${label}.`,
     action: { kind: "no_safe_change", patch: null },
   });
@@ -299,8 +299,10 @@ test("cell result binds provider input, actual agent exit, signed verifier, and 
     assert.equal(treatment.cell.arm, "treatment");
     const agentReceipt = await executeAgentActionV1({
       cell: treatment.cell,
+      pilotCase: fixture.cases[0],
       executionAuthority: await buildAgentExecutionAuthorityV1({
         cell: treatment.cell,
+        pilotCase: fixture.cases[0],
         workspacePath: fixture.workspacePath,
         gitExecutablePath: "/usr/bin/git",
       }),

@@ -110,7 +110,7 @@ function providerClock() {
 
 function assistantContent() {
   return JSON.stringify({
-    schema_version: "aionis_pilot_agent_action_v1",
+    schema_version: "aionis_pilot_agent_action_v2",
     summary: "No safe workspace change is justified by the frozen public task.",
     action: { kind: "no_safe_change", patch: null },
   });
@@ -501,6 +501,7 @@ test("executable pilot runner seals one offline 3x3 run through real child bound
       const policyBinding = cellPolicyBindings[index];
       const executionAuthority = await buildAgentExecutionAuthorityV1({
         cell,
+        pilotCase: caseContext.pilotCase,
         workspacePath: workspacePaths[index],
         gitExecutablePath,
       });

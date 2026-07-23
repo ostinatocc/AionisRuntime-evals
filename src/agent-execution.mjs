@@ -15,7 +15,7 @@ import {
   expectText,
   sha256Bytes,
 } from "./canonical.mjs";
-import { verifyPilotCellV1 } from "./pilot-contract.mjs";
+import { verifyPilotCaseV1, verifyPilotCellV1 } from "./pilot-contract.mjs";
 import { captureWorkspaceEvidenceV1 } from "./workspace-evidence.mjs";
 import { gitExecutableIdentitySha256V1 } from
   "./release-eval-repository-provenance.mjs";
@@ -78,16 +78,43 @@ function verifyWorkspaceIdentity(value, field) {
   return identity;
 }
 
-function verifyExecutionAuthorityRecord(value, cell) {
+function pilotCaseForCell(pilotCaseValue, cell) {
+  const pilotCase = verifyPilotCaseV1(pilotCaseValue);
+  if (pilotCase.case_id !== cell.case_id
+    || pilotCase.case_sha256 !== cell.case_sha256) {
+    fail("execution_authority_case_binding_invalid");
+  }
+  return pilotCase;
+}
+
+function allowedTargetPath(pilotCase) {
+  const value = pilotCase.episode_1_evidence.prior_verified_state
+    .signed_evidence.verified_source_relative_path;
+  const segments = value.split("/");
+  if (Buffer.byteLength(value, "utf8") < 1
+    || Buffer.byteLength(value, "utf8") > 4_096
+    || path.posix.isAbsolute(value)
+    || path.posix.normalize(value) !== value
+    || !/^[A-Za-z0-9._/-]+$/u.test(value)
+    || segments.some((segment) => segment === "" || segment === "."
+      || segment === ".." || segment.toLowerCase() === ".git")) {
+    fail("execution_authority_allowed_target_path_invalid");
+  }
+  return value;
+}
+
+function verifyExecutionAuthorityRecord(value, cell, pilotCaseValue = null) {
   const authority = expectExactRecord(value, [
-    "authority_sha256", "cell_sha256", "executor_entry_sha256", "git_executable_path",
+    "allowed_target_path", "authority_sha256", "case_sha256", "cell_sha256",
+    "executor_entry_sha256", "git_executable_path",
     "git_executable_identity_sha256", "git_executable_sha256", "schema_version",
     "workspace_identity",
     "workspace_instance_id", "workspace_path", "workspace_prepared_inode_set_sha256",
     "workspace_prepared_sha256",
   ], "agent_execution_authority");
-  if (authority.schema_version !== "aionis_pilot_agent_execution_authority_v1"
+  if (authority.schema_version !== "aionis_pilot_agent_execution_authority_v2"
     || authority.workspace_instance_id !== cell.isolation.workspace_instance_id
+    || authority.case_sha256 !== cell.case_sha256
     || authority.cell_sha256 !== canonicalSha256(cell)
     || !path.isAbsolute(authority.workspace_path)
     || path.normalize(authority.workspace_path) !== authority.workspace_path
@@ -96,8 +123,16 @@ function verifyExecutionAuthorityRecord(value, cell) {
     fail("execution_authority_binding_invalid");
   }
   verifyWorkspaceIdentity(authority.workspace_identity, "agent_execution_workspace_identity");
+  expectText(authority.allowed_target_path, "agent_execution_allowed_target_path");
+  if (pilotCaseValue !== null) {
+    const pilotCase = pilotCaseForCell(pilotCaseValue, cell);
+    if (authority.case_sha256 !== pilotCase.case_sha256
+      || authority.allowed_target_path !== allowedTargetPath(pilotCase)) {
+      fail("execution_authority_case_binding_invalid");
+    }
+  }
   for (const field of [
-    "authority_sha256", "cell_sha256", "executor_entry_sha256",
+    "authority_sha256", "case_sha256", "cell_sha256", "executor_entry_sha256",
     "git_executable_identity_sha256", "git_executable_sha256",
     "workspace_prepared_inode_set_sha256", "workspace_prepared_sha256",
   ]) expectSha256(authority[field], `agent_execution_${field}`);
@@ -112,9 +147,10 @@ function verifyExecutionAuthorityRecord(value, cell) {
 
 export async function buildAgentExecutionAuthorityV1(options) {
   const input = expectExactRecord(options, [
-    "cell", "gitExecutablePath", "workspacePath",
+    "cell", "gitExecutablePath", "pilotCase", "workspacePath",
   ], "agent_execution_authority_input");
   const cell = verifyPilotCellV1(input.cell);
+  const pilotCase = pilotCaseForCell(input.pilotCase, cell);
   const workspacePath = expectText(input.workspacePath, "workspace_path", {
     maximumBytes: 16_384,
   });
@@ -139,8 +175,10 @@ export async function buildAgentExecutionAuthorityV1(options) {
   const gitExecutableBytes = await readFile(gitExecutablePath);
   const gitExecutableSha256 = sha256Bytes(gitExecutableBytes);
   const body = canonicalClone({
-    schema_version: "aionis_pilot_agent_execution_authority_v1",
+    schema_version: "aionis_pilot_agent_execution_authority_v2",
+    case_sha256: pilotCase.case_sha256,
     cell_sha256: canonicalSha256(cell),
+    allowed_target_path: allowedTargetPath(pilotCase),
     workspace_instance_id: cell.isolation.workspace_instance_id,
     workspace_path: workspacePath,
     workspace_identity: workspace.workspace_identity,
@@ -159,11 +197,13 @@ export async function buildAgentExecutionAuthorityV1(options) {
   return canonicalClone({ ...body, authority_sha256: canonicalSha256(body) });
 }
 
-export async function verifyAgentExecutionAuthorityV1(value, cellValue) {
+export async function verifyAgentExecutionAuthorityV1(value, cellValue, pilotCaseValue) {
   const cell = verifyPilotCellV1(cellValue);
-  const authority = verifyExecutionAuthorityRecord(value, cell);
+  const pilotCase = pilotCaseForCell(pilotCaseValue, cell);
+  const authority = verifyExecutionAuthorityRecord(value, cell, pilotCase);
   const actual = await buildAgentExecutionAuthorityV1({
     cell,
+    pilotCase,
     workspacePath: authority.workspace_path,
     gitExecutablePath: authority.git_executable_path,
   });
@@ -194,13 +234,14 @@ export async function executeAgentActionV1(options) {
   }
   const allowed = new Set([
     "assistantContent", "cell", "clock", "executionAuthority",
-    "providerResponseReceiptSha256",
+    "pilotCase", "providerResponseReceiptSha256",
   ]);
   if (Object.keys(options).some((key) => !allowed.has(key))) fail("options_invalid");
   const cell = verifyPilotCellV1(options.cell);
   const executionAuthority = await verifyAgentExecutionAuthorityV1(
     options.executionAuthority,
     cell,
+    options.pilotCase,
   );
   const workspacePath = executionAuthority.workspace_path;
   const assistantContent = expectText(options.assistantContent, "assistant_content", {
@@ -222,6 +263,7 @@ export async function executeAgentActionV1(options) {
   const child = spawn(process.execPath, [
     executorPath,
     executionAuthority.git_executable_path,
+    executionAuthority.allowed_target_path,
   ], {
     cwd: workspacePath,
     stdio: ["pipe", "pipe", "pipe"],

@@ -3,9 +3,9 @@ import { generateKeyPairSync } from "node:crypto";
 import test from "node:test";
 
 import {
-  agentActionSha256V1,
+  agentActionSha256V2,
   buildAgentModelInputV1,
-  decodeAgentActionV1,
+  decodeAgentActionV2,
 } from "../src/agent-action.mjs";
 import { canonicalClone, sha256Bytes } from "../src/canonical.mjs";
 import { buildPilotCellV1 } from "../src/pilot-contract.mjs";
@@ -36,7 +36,7 @@ function prepared(pilotCase, arm, modelContext = null) {
   };
 }
 
-test("baseline and observe-only model inputs are byte-identical while treatment adds only context", () => {
+test("controls are byte-identical and the signed case path enters the v2 instruction", () => {
   const keys = generateKeyPairSync("ed25519");
   const pilotCase = buildTestPilotCaseV1({
     caseId: "agent-input-case",
@@ -60,7 +60,16 @@ test("baseline and observe-only model inputs are byte-identical while treatment 
   assert.equal(baseline.runtime_context_sha256, null);
   assert.match(
     baseline.messages[0].content,
-    /schema_version must be exactly aionis_pilot_agent_action_v1\./u,
+    /schema_version must be exactly aionis_pilot_agent_action_v2\./u,
+  );
+  assert.match(
+    baseline.messages[0].content,
+    /action must be exactly \{"kind":"replace_text","path":"src\/continuation\.mjs","old_text":"<exact-existing-text>","new_text":"<replacement-text>"\}/u,
+  );
+  assert.match(baseline.messages[0].content, /Do not return a diff\./u);
+  assert.match(
+    baseline.messages[0].content,
+    /old_text must be non-empty, copied verbatim from the provided file, and uniquely identify the intended occurrence/u,
   );
   assert.equal(treatment.public_prompt_sha256, baseline.public_prompt_sha256);
   assert.notEqual(treatment.model_input_sha256, baseline.model_input_sha256);
@@ -82,61 +91,71 @@ test("baseline and observe-only model inputs are byte-identical while treatment 
   );
 });
 
-test("agent action is a strict single bounded diff or explicit no-safe-change", () => {
-  const action = {
-    schema_version: "aionis_pilot_agent_action_v1",
-    summary: "Update the accepted branch marker.",
+test("v2 decodes only one canonical bounded replace_text action", () => {
+  const replacement = {
+    schema_version: "aionis_pilot_agent_action_v2",
+    summary: "Continue through the verified branch.",
     action: {
-      kind: "apply_unified_diff",
-      patch: [
-        "diff --git a/state.txt b/state.txt",
-        "--- a/state.txt",
-        "+++ b/state.txt",
-        "@@ -1 +1 @@",
-        "-old",
-        "+accepted",
-        "",
-      ].join("\n"),
+      kind: "replace_text",
+      path: "src/continuation.mjs",
+      old_text: "  throw new Error(\"continuation path not selected\");",
+      new_text: "  return credentialPathA(sessionId);",
     },
   };
-  assert.deepEqual(decodeAgentActionV1(JSON.stringify(action)), action);
-  assert.match(agentActionSha256V1(action), /^[0-9a-f]{64}$/u);
+  const decoded = decodeAgentActionV2(replacement);
+  assert.deepEqual(decoded, replacement);
+  assert.notStrictEqual(decoded, replacement);
+  assert.deepEqual(decodeAgentActionV2(JSON.stringify(replacement)), replacement);
+  assert.match(agentActionSha256V2(replacement), /^[0-9a-f]{64}$/u);
+
+  const deletion = canonicalClone(replacement);
+  deletion.summary = "Delete the obsolete branch marker.";
+  deletion.action.old_text = "const obsolete = true;\n";
+  deletion.action.new_text = "";
+  assert.deepEqual(decodeAgentActionV2(deletion), deletion);
 
   for (const mutate of [
-    (value) => { value.extra = true; },
-    (value) => { value.action.patch = "```diff\n"; },
+    (value) => { value.action.extra = true; },
+    (value) => { delete value.action.new_text; },
+    (value) => { value.action.path = "/src/continuation.mjs"; },
+    (value) => { value.action.path = "./src/continuation.mjs"; },
+    (value) => { value.action.path = "../src/continuation.mjs"; },
+    (value) => { value.action.path = "src//continuation.mjs"; },
+    (value) => { value.action.path = "src/.GIT/continuation.mjs"; },
+    (value) => { value.action.old_text = ""; },
+    (value) => { value.action.new_text = value.action.old_text; },
+    (value) => { value.action.old_text = "old\u0000text"; },
+    (value) => { value.action.new_text = "new\u0000text"; },
+    (value) => { value.action.old_text = "\ud800"; },
+    (value) => { value.action.new_text = "\udc00"; },
     (value) => {
-      value.action.patch = "diff --git a/../escape b/../escape\n--- a/../escape\n+++ b/../escape\n";
+      value.action.old_text = "o".repeat(131_073);
+      value.action.new_text = "n".repeat(131_072);
     },
-    (value) => {
-      value.action.patch = "diff --git a/.git/config b/.git/config\n--- a/.git/config\n+++ b/.git/config\n";
-    },
-    (value) => {
-      value.action.patch = [
-        "diff --git a/link b/link", "new file mode 120000", "--- /dev/null",
-        "+++ b/link", "@@ -0,0 +1 @@", "+../outside", "",
-      ].join("\n");
-    },
-    (value) => {
-      value.action.patch = [
-        "diff --git a/old.txt b/new.txt", "similarity index 100%", "rename from old.txt",
-        "rename to new.txt", "",
-      ].join("\n");
-    },
-    (value) => {
-      value.action.patch = [
-        "diff --git a/state.txt b/state.txt", "--- a/other.txt", "+++ b/state.txt",
-        "@@ -1 +1 @@", "-old", "+new", "",
-      ].join("\n");
-    },
+    (value) => { value.action.old_text = "o".repeat(262_145); },
   ]) {
-    const invalid = canonicalClone(action);
+    const invalid = canonicalClone(replacement);
     mutate(invalid);
-    assert.throws(() => decodeAgentActionV1(invalid), /aionis_eval_/u);
+    assert.throws(() => decodeAgentActionV2(invalid), /aionis_eval_/u);
   }
+});
 
-  assert.deepEqual(decodeAgentActionV1({
+test("v2 rejects legacy diff and accepts only exact no_safe_change", () => {
+  assert.throws(() => decodeAgentActionV2({
+    schema_version: "aionis_pilot_agent_action_v2",
+    summary: "Attempt a legacy diff.",
+    action: {
+      kind: "apply_unified_diff",
+      patch: "--- a/state.txt\n+++ b/state.txt\n@@ -1 +1 @@\n-old\n+new\n",
+    },
+  }), /kind_invalid/u);
+  assert.throws(() => decodeAgentActionV2({
     schema_version: "aionis_pilot_agent_action_v1",
+    summary: "Attempt an old schema.",
+    action: { kind: "no_safe_change", patch: null },
+  }), /schema_invalid/u);
+  assert.deepEqual(decodeAgentActionV2({
+    schema_version: "aionis_pilot_agent_action_v2",
     summary: "The requested change conflicts with the verified state.",
     action: { kind: "no_safe_change", patch: null },
   }).action, { kind: "no_safe_change", patch: null });

@@ -537,6 +537,7 @@ export async function provisionReleaseCellResourcesV1(options) {
       const runtime = mapRuntimeResource(runtimeOwner, cell, policyBinding, index);
       const executionAuthority = await buildAgentExecutionAuthorityV1({
         cell,
+        pilotCase,
         workspacePath: workspace.authority.workspace_path,
         gitExecutablePath,
       });
