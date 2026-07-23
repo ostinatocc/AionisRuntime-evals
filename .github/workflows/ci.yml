@@ -82,3 +82,20 @@ jobs:
         env:
           AIONIS_RUNTIME_REPO: ${{ github.workspace }}/AionisRuntime-focused
         run: npm run test:runtime-v1
+
+  required:
+    name: Frozen authority contracts
+    if: ${{ always() }}
+    needs:
+      - verify
+      - runtime-v1-integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every authority gate
+        env:
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          RUNTIME_RESULT: ${{ needs['runtime-v1-integration'].result }}
+        run: |
+          test "${VERIFY_RESULT}" = "success"
+          test "${RUNTIME_RESULT}" = "success"

@@ -20,4 +20,8 @@ test("CI integration checkout is pinned to the Runtime V1 lock", () => {
   assert.deepEqual(refs, [lock.runtime_git_commit_sha]);
   assert.match(workflow, /repository: ostinatocc\/Aionis$/mu);
   assert.doesNotMatch(workflow, /DEEPSEEK_API_KEY|OPENROUTER_API_KEY|secrets\./u);
+  assert.match(workflow, /^  required:\n    name: Frozen authority contracts$/mu);
+  assert.match(workflow, /^    if: \$\{\{ always\(\) \}\}$/mu);
+  assert.match(workflow, /^      - runtime-v1-integration$/mu);
+  assert.match(workflow, /^          RUNTIME_RESULT: \$\{\{ needs\['runtime-v1-integration'\]\.result \}\}$/mu);
 });
