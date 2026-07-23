@@ -1,19 +1,20 @@
 {
-  "name": "@aionis/runtime-evals",
-  "version": "0.0.0-private",
+  "name": "aionis-continuation-runtime-evals",
+  "version": "1.0.0-alpha.1",
   "private": true,
+  "description": "Exact, evidence-bound external evaluation for Aionis Continuation Runtime V1.",
+  "license": "Apache-2.0",
   "type": "module",
-  "description": "Git-authoritative bounded soak harness for Aionis Runtime releases",
   "engines": {
-    "node": ">=24 <25"
+    "node": ">=22.15.0 <23 || >=24.0.0 <25"
   },
   "scripts": {
+    "check": "npm run -s syntax:check && npm run -s test",
+    "syntax:check": "node src/cli/check-source.mjs",
     "test": "node --test test/*.test.mjs",
-    "test:contracts": "node --test test/contracts.test.mjs test/workflow-contract.test.mjs",
-    "validate:fixture": "node src/run-bounded-soak.mjs validate --lock config/v0.3.12-release-lock.json --authority fixtures/v0.3.12/authority-manifest.json --workload fixtures/v0.3.12/workload-manifest.json",
-    "run:pilot": "node src/run-bounded-soak.mjs pilot --lock config/v0.3.12-release-lock.json --authority fixtures/v0.3.12/authority-manifest.json --workload fixtures/v0.3.12/workload-manifest.json --execute",
-    "run:soak": "node src/run-bounded-soak.mjs soak --lock config/v0.3.12-release-lock.json --authority fixtures/v0.3.12/authority-manifest.json --workload fixtures/v0.3.12/workload-manifest.json --execute",
-    "artifact:manifest": "node src/build-artifact-manifest.mjs",
-    "verify:stable": "node scripts/verify-stable-promotion.mjs"
+    "test:runtime-v1": "node --test test/runtime-v1.integration.mjs",
+    "pilot:preflight": "node src/cli/preflight-pilot.mjs",
+    "pilot:recover-release": "node src/cli/recover-release-pilot.mjs",
+    "pilot:run-release": "node src/cli/run-release-pilot.mjs"
   }
 }

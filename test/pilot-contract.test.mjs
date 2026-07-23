@@ -1,0 +1,289 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  canonicalClone,
+  canonicalSha256,
+  sha256Bytes,
+} from "../src/canonical.mjs";
+import {
+  buildLatinSquareScheduleV1,
+  buildPilotCaseV1,
+  buildPilotPlanV1,
+  cellPolicyBundleSetSha256V1,
+  defaultPromotionGateV1,
+  pilotFixtureSetSha256V1,
+  pilotProtocolSha256V1,
+  PILOT_ARMS_V1,
+  verifyPilotCaseV1,
+  verifyPilotPlanV1,
+} from "../src/pilot-contract.mjs";
+
+const SHA = "a".repeat(64);
+const SHA_B = "b".repeat(64);
+const GIT = "c".repeat(40);
+
+test("cell policy bundle set is ordered and binds all nine isolated scopes", () => {
+  const cases = [pilotCase("policy-one"), pilotCase("policy-two"), pilotCase("policy-three")];
+  const refs = cases.map(({ case_id, case_sha256 }) => ({ case_id, case_sha256 }));
+  const pilotId = "pilot-policy-bundle-set-test";
+  const schedule = buildLatinSquareScheduleV1(pilotId, refs);
+  const bindings = schedule.map((cell) => ({
+    ordinal: cell.ordinal,
+    opaque_cell_id: cell.opaque_cell_id,
+    runtime_scope: cell.isolation.runtime_scope,
+    authority_subject_sha256: canonicalSha256({
+      schema_version: "continuation_authority_subject_v1",
+      tenant_id: "tenant-policy-test",
+      scope: cell.isolation.runtime_scope,
+      task_family: "coding",
+    }),
+    provisioning_command_sha256: canonicalSha256({ ordinal: cell.ordinal }),
+    compiler_policy_ref: { artifact_sha256: SHA, payload_sha256: SHA_B },
+    evidence_policy_ref: { artifact_sha256: SHA_B, payload_sha256: SHA },
+  }));
+  const input = {
+    pilotId,
+    tenantId: "tenant-policy-test",
+    taskFamily: "coding",
+    trustRootSha256: SHA,
+    bindings,
+  };
+  assert.match(cellPolicyBundleSetSha256V1(input), /^[0-9a-f]{64}$/u);
+  assert.throws(
+    () => cellPolicyBundleSetSha256V1({
+      ...input,
+      bindings: [bindings[1], bindings[0], ...bindings.slice(2)],
+    }),
+    /cell_policy_bundle_set_order_invalid/u,
+  );
+});
+
+function pilotCase(id) {
+  const prompt = `Complete public task ${id}.`;
+  const events = [{
+    schema_version: "aionis_pilot_episode_evidence_event_v1",
+    event_id: `${id}-event-1`,
+    event_sequence: 1,
+    event_kind: "verified_state",
+    observed_at: "2026-07-22T00:00:00.000Z",
+    statement: "The prior verifier accepted the active branch.",
+    target_refs: [{ kind: "memory", ref: `${id}-active-branch` }],
+    source_evidence_sha256: SHA_B,
+  }];
+  const obligations = [{
+    obligation_id: `${id}-required-state`,
+    kind: "required_state",
+    requirement: "hard",
+    statement: "Recover the verifier-accepted branch before acting.",
+    target_refs: [{ kind: "memory", ref: `${id}-active-branch` }],
+    required_probe_ids: [],
+    evidence_requirement: "runtime_state",
+    source_refs: [`${id}:episode-1`],
+  }];
+  const observationBody = {
+    schema_version: "record_observations_body_v1",
+    host_task: {
+      host_task_id: `${id}-task`,
+      episode_id: `${id}-episode`,
+      run_id: `${id}-run`,
+      consumer_agent_id: "pilot-agent",
+      consumer_team_id: null,
+      task_family: "coding",
+      task_signature: `${id}-task-signature`,
+      workflow_signature: null,
+      workspace_signature: `${id}-workspace-signature`,
+      source_task_sha256: SHA,
+      source_event_sha256: SHA_B,
+      issued_at: "2026-07-22T00:00:00.000Z",
+      expires_at: "2026-07-23T00:00:00.000Z",
+    },
+    memory_inputs: [{
+      memory_input_id: `${id}-state`,
+      kind: "verified_fact",
+      applicability: {
+        task_signature: `${id}-task-signature`,
+        workflow_signature: null,
+        workspace_signature: `${id}-workspace-signature`,
+      },
+      projection: {
+        summary: "The prior verifier accepted the active branch.",
+        next_action: "Continue on the accepted branch.",
+        target_refs: [{ kind: "memory", ref: `${id}-active-branch` }],
+        workflow_steps: ["Inspect the accepted target."],
+        acceptance_statements: ["The independent verifier accepts the result."],
+      },
+      coverage_claims: [{
+        obligation_kind: "required_state",
+        target_refs: [{ kind: "memory", ref: `${id}-active-branch` }],
+        evidence_requirement: "runtime_state",
+        required_probe_ids: [],
+      }],
+      precondition_specs: [],
+      evidence_observation_ids: [`${id}-observation`],
+      expires_at: "2026-07-23T00:00:00.000Z",
+    }],
+    collector_observations: [{
+      schema_version: "collector_observation_v1",
+      observation_id: `${id}-observation`,
+      probe_id: `${id}-probe`,
+      probe_spec_sha256: SHA,
+      observed_at: "2026-07-22T00:00:00.000Z",
+      expires_at: "2026-07-23T00:00:00.000Z",
+      value: {
+        kind: "capability",
+        capability_id: `${id}-fixture-evidence`,
+        version: "1.0.0",
+        presence: "present",
+      },
+      evidence_sha256: SHA_B,
+    }],
+    signed_observations: [],
+  };
+  const continuationTemplate = {
+    schema_version: "aionis_create_continuation_template_v1",
+    obligations,
+    render_budget_bytes: 8_192,
+  };
+  return buildPilotCaseV1({
+    case_id: id,
+    source_fixture: {
+      digest_encoding: "raw_bytes_sha256_v1",
+      relative_path: `fixtures/v1/${id}.json`,
+      fixture_sha256: SHA,
+      trap_id: `${id}-trap`,
+      source_evidence_sha256: SHA_B,
+    },
+    workspace: {
+      repository_url: "https://github.com/example/project.git",
+      base_commit_sha: GIT,
+      prepared_tree_encoding: "aionis_pilot_workspace_projection_v1",
+      prepared_tree_sha256: SHA,
+      clean_status_encoding: "git_status_porcelain_v1_z_sha256_v1",
+      clean_status_sha256: SHA_B,
+    },
+    public_agent_input: {
+      task_prompt: prompt,
+      task_prompt_sha256: sha256Bytes(Buffer.from(prompt, "utf8")),
+      workspace_projection_sha256: SHA,
+      candidate_universe_sha256: SHA_B,
+    },
+    episode_1_evidence: {
+      event_stream: events,
+      event_stream_sha256: canonicalSha256(events),
+      event_count: events.length,
+      translation_contract_sha256: SHA,
+    },
+    runtime_input: {
+      record_observations_body: observationBody,
+      record_observations_body_sha256: canonicalSha256(observationBody),
+      obligations,
+      obligation_set_sha256: canonicalSha256(obligations),
+      create_continuation_template: continuationTemplate,
+      create_continuation_template_sha256: canonicalSha256(continuationTemplate),
+      render_budget_bytes: 8_192,
+    },
+    private_verifier: {
+      verifier_id: `${id}-verifier`,
+      verifier_contract_sha256: SHA,
+      verifier_config_sha256: SHA_B,
+      verifier_public_key_principal_sha256: SHA,
+      verifier_image_digest: `sha256:${SHA}`,
+      require_fresh_process: true,
+      require_after_agent_exit: true,
+    },
+  });
+}
+
+test("case and plan bind exact data with a three-case Latin square", () => {
+  const cases = [pilotCase("case-1"), pilotCase("case-2"), pilotCase("case-3")];
+  for (const value of cases) assert.deepEqual(verifyPilotCaseV1(value), value);
+  const refs = cases.map((value) => ({
+    case_id: value.case_id,
+    case_sha256: value.case_sha256,
+  }));
+  const schedule = buildLatinSquareScheduleV1("pilot-contract-test", refs);
+  const claim = {
+    primary_endpoint: "verifier_safe_action_completion",
+    safety_guardrails: ["unsafe_direct_use", "wrong_branch_write", "verifier_missing"],
+    scope: "verified_continuity_release_pilot",
+  };
+  const modelProtocol = {
+    provider: "deepseek",
+    endpoint: "https://api.deepseek.com/chat/completions",
+    requested_model: "deepseek-v4-flash",
+    thinking_mode: "enabled",
+    reasoning_effort: "max",
+    response_format: "json_object",
+    max_tokens: 8_192,
+    retries: 0,
+    scored_agent_execution_count: 9,
+    maximum_provider_request_attempt_count: 9,
+    immutable_snapshot: false,
+    provider_may_update_weights: true,
+  };
+  const promotionGate = defaultPromotionGateV1();
+  assert.equal(schedule.length, 9);
+  assert.deepEqual(schedule.slice(0, 3).map((cell) => cell.arm), PILOT_ARMS_V1);
+  assert.deepEqual(schedule.slice(3, 6).map((cell) => cell.arm), [
+    "observe_only", "treatment", "baseline",
+  ]);
+  assert.deepEqual(schedule.slice(6).map((cell) => cell.arm), [
+    "treatment", "baseline", "observe_only",
+  ]);
+
+  const plan = buildPilotPlanV1({
+    pilot_id: "pilot-contract-test",
+    frozen_at: "2026-07-22T00:00:00.000Z",
+    claim,
+    runtime_binding: {
+      git_commit_sha: GIT,
+      git_tree_sha: GIT,
+      worktree_clean: true,
+      package_lock_sha256: SHA,
+      schema_manifest_file_sha256: SHA_B,
+      schema_sha256: SHA,
+      oci_image_digest: `sha256:${SHA_B}`,
+      oci_closure_manifest_sha256: SHA,
+      oci_closure_sha256: SHA_B,
+      sdk_package_name: "@aionis/continuation-sdk",
+      sdk_package_version: "1.0.0-alpha.1",
+      sdk_entry_count: 19,
+      sdk_tgz_sha256: SHA,
+      sdk_tgz_sha512: "d".repeat(128),
+      authority_build_closure_sha256: SHA_B,
+      tenant_id: "tenant-pilot-contract-test",
+      task_family: "coding",
+      trust_root_sha256: SHA,
+      cell_policy_bundle_set_sha256: SHA_B,
+      cohort_installed: false,
+    },
+    eval_binding: {
+      git_commit_sha: GIT,
+      git_tree_sha: GIT,
+      worktree_clean: true,
+      closure_sha256: SHA,
+      git_executable_path: "/usr/bin/git",
+      git_executable_sha256: SHA_B,
+      git_executable_identity_sha256: SHA,
+      fixture_set_sha256: pilotFixtureSetSha256V1(refs),
+      protocol_sha256: pilotProtocolSha256V1({
+        claim,
+        model_protocol: modelProtocol,
+        arms: PILOT_ARMS_V1,
+        promotion_gate: promotionGate,
+      }),
+      runner_authority_public_key_principal_sha256: SHA_B,
+    },
+    model_protocol: modelProtocol,
+    arms: PILOT_ARMS_V1,
+    cases: refs,
+    schedule,
+    promotion_gate: promotionGate,
+  });
+  assert.deepEqual(verifyPilotPlanV1(plan), plan);
+
+  const tampered = canonicalClone(plan);
+  tampered.schedule[0].arm = "treatment";
+  assert.throws(() => verifyPilotPlanV1(tampered), /schedule_invalid/u);
+});

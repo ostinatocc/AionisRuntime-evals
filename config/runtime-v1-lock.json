@@ -1,0 +1,17 @@
+{
+  "schema_version": "aionis_eval_runtime_v1_lock_v1",
+  "runtime_repository": "https://github.com/ostinatocc/Aionis.git",
+  "runtime_directory": "AionisRuntime-focused",
+  "runtime_git_commit_sha": "697204d508cae705d2a4671f31126a1807005bfb",
+  "runtime_git_tree_sha": "0194bbd9e4517805f3618a07ff3c0ded25465bbe",
+  "runtime_package_lock_sha256": "0243d63a91880b5ce70f50a523fc9ac0596e3ef9667c955d7aac10342db7bbe9",
+  "schema_manifest_relative_path": "src/store/sql/continuation-runtime-v1.manifest.json",
+  "schema_manifest_file_sha256": "43be7a2b51d2bdee579f56ed23aa249247656f17defab0c1610434772f69654e",
+  "schema_sha256": "65c6e58f4e4b9f95b34d061c79c11a3e3fbabd36ba1293e80c6b75c872cfbf8e",
+  "oci_image": "aionis-continuation-runtime-v1:ci",
+  "oci_closure_manifest_sha256": "a9744786fd728cedf9d6c6e3fe638928c6040c9af79ad67ba63a0008c2a198f3",
+  "oci_closure_sha256": "dd77bd1c919eedc4d733fd350cc8dda1f317a5d34765fda464564a1ab595ed27",
+  "sdk_package_name": "@aionis/continuation-sdk",
+  "sdk_package_version": "1.0.0-alpha.1",
+  "sdk_entry_count": 19
+}
