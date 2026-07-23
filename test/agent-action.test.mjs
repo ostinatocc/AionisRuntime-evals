@@ -58,6 +58,10 @@ test("baseline and observe-only model inputs are byte-identical while treatment 
 
   assert.deepEqual(baseline, observed);
   assert.equal(baseline.runtime_context_sha256, null);
+  assert.match(
+    baseline.messages[0].content,
+    /schema_version must be exactly aionis_pilot_agent_action_v1\./u,
+  );
   assert.equal(treatment.public_prompt_sha256, baseline.public_prompt_sha256);
   assert.notEqual(treatment.model_input_sha256, baseline.model_input_sha256);
   assert.match(treatment.runtime_context_sha256, /^[0-9a-f]{64}$/u);

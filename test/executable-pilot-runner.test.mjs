@@ -1497,6 +1497,135 @@ test("executable pilot runner seals one offline 3x3 run through real child bound
     assert.equal(finalizationSealedReport.status, "verified_aborted");
     assert.equal(finalizationSealedReport.claim_eligible, false);
 
+    const preparationAbortAuthorityRoot = path.join(
+      root,
+      "preparation-abort-authority",
+    );
+    await mkdir(preparationAbortAuthorityRoot, { mode: 0o700 });
+    const preparationAbortTracker = { prepared: [], settled: [], closed: [] };
+    const preparationAbortRawResources = rawCellResources.map((resource, index) => {
+      const cell = plan.schedule[index];
+      const caseContext = casesById.get(cell.case_id);
+      const baseAdapter = createPreparedArmAdapter({
+        cell,
+        pilotCase: caseContext.pilotCase,
+        tracker: preparationAbortTracker,
+      });
+      return {
+        ...resource,
+        adapter: Object.freeze({
+          async prepareArm() {
+            if (cell.ordinal === 2) {
+              throw new Error("controlled_cell_preparation_failure");
+            }
+            return baseAdapter.prepareArm();
+          },
+          ...(typeof baseAdapter.settleTreatment === "function" ? {
+            settleTreatment: baseAdapter.settleTreatment,
+          } : {}),
+          close: baseAdapter.close,
+        }),
+      };
+    });
+    const preparationAbortResources =
+      buildNonReleaseContractTestCellResourceAuthorityV1({
+        cellResources: preparationAbortRawResources,
+        executionManifest,
+        plan,
+      });
+    const preparationAbortAuthorization =
+      buildSignedNonReleaseContractTestRunnerExecutionAuthorizationV1({
+        plan,
+        executionManifest,
+        fixedLedgerAuthorityRoot: preparationAbortAuthorityRoot,
+        issuedAt: "2026-07-22T00:00:50.000Z",
+      }, TEST_RUNNER_KEYS_V1.privateKey);
+    let preparationAbortFetchCount = 0;
+    const preparationAbortResult = await runNonReleaseContractTestExecutablePilotV1({
+      apiKey: OFFLINE_API_KEY,
+      authorityRoot: preparationAbortAuthorityRoot,
+      cases,
+      cellResourceAuthority: preparationAbortResources,
+      executionAuthorization: preparationAbortAuthorization,
+      executionManifest,
+      fetchImpl: async () => {
+        preparationAbortFetchCount += 1;
+        return {
+          status: 503,
+          headers: { get() { return null; } },
+          async text() { return "{}"; },
+        };
+      },
+      nonReleaseContractTestRunnerPrivateKey: TEST_RUNNER_KEYS_V1.privateKey,
+      plan,
+      providerClock: providerClock(),
+      runnerPublicKey: TEST_RUNNER_KEYS_V1.publicKey,
+    });
+    assert.equal(preparationAbortFetchCount, 1);
+    assert.equal(
+      preparationAbortResult.schema_version,
+      "aionis_executable_pilot_aborted_result_v1",
+    );
+    assert.equal(preparationAbortResult.failure_stage, "cell_preparation");
+    assert.equal(preparationAbortResult.failure_class, "harness_infrastructure");
+    assert.equal(preparationAbortResult.completed_cell_result_sha256s.length, 1);
+    assert.equal(preparationAbortResult.run_abort.completed_cell_count, 1);
+    assert.equal(preparationAbortResult.run_abort.next_attempt_ordinal, 2);
+    assert.equal(preparationAbortResult.run_abort.active_attempt_ordinal, null);
+    assert.equal(
+      preparationAbortResult.run_abort.active_provider_attempt_state,
+      "no_active_attempt",
+    );
+    assert.equal(
+      preparationAbortResult.run_abort.failing_cell_ref.opaque_cell_id,
+      "cell-02",
+    );
+    assert.equal(preparationAbortResult.abort_manifest.status, "aborted");
+    assert.deepEqual(
+      preparationAbortTracker.closed,
+      [
+        plan.schedule[0].opaque_cell_id,
+        ...plan.schedule.slice(1).reverse().map((cell) => cell.opaque_cell_id),
+      ],
+    );
+    const {
+      events: preparationAbortEvents,
+      runDirectory: preparationAbortRunDirectory,
+    } = await readCanonicalEvents(preparationAbortAuthorityRoot);
+    assert.deepEqual(preparationAbortEvents.map((event) => event.event_kind), [
+      "run_started",
+      "cell_arm_prepared",
+      "model_input_frozen",
+      "provider_attempt_reserved",
+      "provider_request_started",
+      "provider_attempt_completed",
+      "cell_result_recorded",
+      "run_aborted",
+    ]);
+    assert.equal(
+      preparationAbortEvents.at(-1).cell_ref.opaque_cell_id,
+      "cell-02",
+    );
+    assert.ok(await readFile(
+      path.join(preparationAbortRunDirectory, "abort-manifest.json"),
+      "utf8",
+    ));
+    await assert.rejects(
+      readFile(path.join(preparationAbortRunDirectory, "final-manifest.json"), "utf8"),
+      /ENOENT/u,
+    );
+    const preparationAbortSealedReport = await verifySealedPilotRunV1({
+      authorityRoot: preparationAbortAuthorityRoot,
+      cases,
+      executionManifest,
+      plan,
+      runnerPublicKey: TEST_RUNNER_KEYS_V1.publicKey,
+      verifierPublicKeys: verifierKeys.map((keys) => keys.publicKey),
+    });
+    assert.equal(preparationAbortSealedReport.status, "verified_aborted");
+    assert.equal(preparationAbortSealedReport.cell_result_count, 1);
+    assert.equal(preparationAbortSealedReport.claim_eligible, false);
+
     const persistenceStages = [
       "after_open",
       "after_write",

@@ -34,6 +34,7 @@ import {
   verifyOwnerCleanupReceiptV1,
 } from "./pilot-run-event-contract.mjs";
 import {
+  claimReleaseCellResourceAuthorityV1,
   disposeReleaseCellResourceAuthorityV1,
   provisionReleaseCellResourcesV1,
 } from "./release-cell-resource-provisioner.mjs";
@@ -586,6 +587,61 @@ export async function disposeReleasePilotOrchestrationResourcesV1(resources) {
   return receipts;
 }
 
+export async function preflightClaimedReleaseCellResourcesV1(options) {
+  const input = expectExactRecord(options, [
+    "cancellationAuthority", "claimedCellResources",
+  ], "release_pilot_claimed_resource_preflight_input");
+  const cancellationAuthority = assertReleasePilotCancellationAuthorityV1(
+    input.cancellationAuthority,
+  );
+  const claimed = input.claimedCellResources;
+  if (claimed === null || typeof claimed !== "object" || Array.isArray(claimed)
+    || !Array.isArray(claimed.resources) || claimed.resources.length === 0
+    || typeof claimed.disposeAll !== "function"
+    || typeof claimed.verifyDisposed !== "function"
+    || claimed.resources.some((resource) =>
+      resource === null || typeof resource !== "object"
+      || typeof resource.adapter?.prepareArm !== "function")) {
+    fail("claimed_resource_preflight_invalid");
+  }
+
+  let preparationError = null;
+  let runtimeSemanticProbeCount = 0;
+  try {
+    for (const resource of claimed.resources) {
+      checkpointReleasePilotCancellationV1(cancellationAuthority);
+      await resource.adapter.prepareArm();
+      runtimeSemanticProbeCount += 1;
+    }
+  } catch (error) {
+    preparationError = error;
+  }
+
+  let cleanupReceipt = null;
+  let cleanupError = null;
+  try {
+    cleanupReceipt = requireConfirmedCellCleanupReceipt(await claimed.disposeAll());
+    const verifiedReceipt = requireConfirmedCellCleanupReceipt(claimed.verifyDisposed());
+    if (canonicalJson(cleanupReceipt) !== canonicalJson(verifiedReceipt)) {
+      fail("claimed_resource_cleanup_receipt_mismatch");
+    }
+  } catch (error) {
+    cleanupError = error;
+  }
+  if (preparationError !== null && cleanupError !== null) {
+    throw new AggregateError(
+      [preparationError, cleanupError],
+      "aionis_eval_release_pilot_orchestrator_preflight_and_cleanup_failed",
+    );
+  }
+  if (cleanupError !== null) throw cleanupError;
+  if (preparationError !== null) throw preparationError;
+  return Object.freeze({
+    cleanupReceipt,
+    runtimeSemanticProbeCount,
+  });
+}
+
 export async function runReleasePilotFromCanonicalConfigWithCancellationV1(
   options,
   cancellationAuthorityValue,
@@ -706,11 +762,15 @@ export async function runReleasePilotFromCanonicalConfigWithCancellationV1(
       });
     checkpointReleasePilotCancellationV1(cancellationAuthority);
     if (input.preflightOnly) {
-      const cleanupReceipt = await disposeReleaseCellResourceAuthorityV1(
+      const claimed = claimReleaseCellResourceAuthorityV1({
         cellResourceAuthority,
-      );
-      requireConfirmedCellCleanupReceipt(cleanupReceipt);
+        plan: publicInputs.plan,
+      });
       cellResourceAuthority = null;
+      const preflight = await preflightClaimedReleaseCellResourcesV1({
+        cancellationAuthority,
+        claimedCellResources: claimed,
+      });
       checkpointReleasePilotCancellationV1(cancellationAuthority);
       const body = canonicalClone({
         schema_version: "aionis_release_pilot_preflight_only_result_v1",
@@ -718,11 +778,12 @@ export async function runReleasePilotFromCanonicalConfigWithCancellationV1(
         claim_eligible: false,
         provider_request_count: 0,
         ledger_created: false,
+        runtime_semantic_probe_count: preflight.runtimeSemanticProbeCount,
         plan_sha256: publicInputs.plan.plan_sha256,
         execution_manifest_sha256: provisioned.executionManifest.manifest_report_sha256,
         execution_authorization_sha256:
           executionAuthorization.execution_authorization_sha256,
-        cleanup_receipt: cleanupReceipt,
+        cleanup_receipt: preflight.cleanupReceipt,
       });
       return canonicalClone({ ...body, result_sha256: canonicalSha256(body) });
     }

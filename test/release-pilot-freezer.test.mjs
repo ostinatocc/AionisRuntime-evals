@@ -345,6 +345,26 @@ test("release freezer emits real 3x3 artifacts without publishing private-key pa
         .source_event_sha256,
       priorVerifiedState.signed_evidence_sha256,
     );
+    const collectorObservation = result.cases[index].runtime_input
+      .record_observations_body.collector_observations[0];
+    assert.deepEqual(collectorObservation.value, {
+      kind: "verifier",
+      verifier_id: result.cases[index].private_verifier.verifier_id,
+      config_sha256:
+        result.cases[index].private_verifier.verifier_config_sha256,
+      result: "passed",
+      fresh_process: true,
+      after_agent_exit: false,
+    });
+    assert.equal(
+      collectorObservation.evidence_sha256,
+      priorVerifiedState.signed_evidence_sha256,
+    );
+    assert.equal(
+      collectorObservation.value.fresh_process,
+      priorEvidence.verifier_process.fresh_process_per_check,
+    );
+    assert.equal(collectorObservation.value.after_agent_exit, false);
     assert.ok(priorEvidence.checks.every((check) =>
       check.configured_argv_sha256 !== check.executed_argv_sha256));
     const status = await git(template.workspace_template_path, [

@@ -27,12 +27,20 @@ import {
 import { attestDeepSeekApiKeyFdV1 } from "../src/deepseek-provider.mjs";
 import { buildPilotCaseV1 } from "../src/pilot-contract.mjs";
 import {
+  buildOwnerCleanupReceiptV1,
+  RELEASE_CLEANUP_OWNER_KINDS_V1,
+} from "../src/pilot-run-event-contract.mjs";
+import {
   assertReleasePilotEnvironmentV1,
   disposeReleasePilotOrchestrationResourcesV1,
   parseReleasePilotCliArgumentsV1,
+  preflightClaimedReleaseCellResourcesV1,
   recoverReleasePilotOrphansFromCanonicalConfigV1,
   runReleasePilotFromCanonicalConfigV1,
 } from "../src/release-pilot-orchestrator.mjs";
+import {
+  createReleasePilotCancellationAuthorityV1,
+} from "../src/release-pilot-cancellation.mjs";
 import {
   activateReleaseWorkspaceOwnerManifestV1,
   beginReleaseWorkspaceOwnerManifestV1,
@@ -254,6 +262,75 @@ test("DeepSeek FD attestation is child-only, redacted, and offset preserving", a
     }
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+function claimedPreflightFixture(failingIndex = null) {
+  const calls = [];
+  const cleanupReceipt = buildOwnerCleanupReceiptV1({
+    ownerKinds: RELEASE_CLEANUP_OWNER_KINDS_V1,
+    closedOwnerKinds: RELEASE_CLEANUP_OWNER_KINDS_V1,
+    failedOwnerKinds: [],
+  });
+  let disposed = false;
+  const resources = Array.from({ length: 9 }, (_, index) => ({
+    adapter: {
+      async prepareArm() {
+        calls.push(`prepare:${index + 1}`);
+        if (index === failingIndex) throw new Error(`prepare-failed:${index + 1}`);
+      },
+    },
+  }));
+  return {
+    calls,
+    claimedCellResources: {
+      resources,
+      async disposeAll() {
+        calls.push("dispose");
+        disposed = true;
+        return cleanupReceipt;
+      },
+      verifyDisposed() {
+        calls.push("verify-disposed");
+        assert.equal(disposed, true);
+        return cleanupReceipt;
+      },
+    },
+    cleanupReceipt,
+  };
+}
+
+test("claimed semantic preflight disposes after success and every prepare failure", async () => {
+  const success = claimedPreflightFixture();
+  const result = await preflightClaimedReleaseCellResourcesV1({
+    cancellationAuthority: createReleasePilotCancellationAuthorityV1(),
+    claimedCellResources: success.claimedCellResources,
+  });
+  assert.equal(result.runtimeSemanticProbeCount, 9);
+  assert.deepEqual(result.cleanupReceipt, success.cleanupReceipt);
+  assert.deepEqual(success.calls, [
+    ...Array.from({ length: 9 }, (_, index) => `prepare:${index + 1}`),
+    "dispose",
+    "verify-disposed",
+  ]);
+
+  for (let failingIndex = 0; failingIndex < 9; failingIndex += 1) {
+    const failure = claimedPreflightFixture(failingIndex);
+    await assert.rejects(
+      preflightClaimedReleaseCellResourcesV1({
+        cancellationAuthority: createReleasePilotCancellationAuthorityV1(),
+        claimedCellResources: failure.claimedCellResources,
+      }),
+      new RegExp(`prepare-failed:${failingIndex + 1}`, "u"),
+    );
+    assert.deepEqual(failure.calls, [
+      ...Array.from(
+        { length: failingIndex + 1 },
+        (_, index) => `prepare:${index + 1}`,
+      ),
+      "dispose",
+      "verify-disposed",
+    ]);
   }
 });
 

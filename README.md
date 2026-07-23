@@ -207,7 +207,9 @@ env -i HOME="$HOME" PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" \
 `--preflight-only` is a real resource preflight: it validates the packed SDK,
 creates and verifies all nine workspaces and Runtime resources, attests all
 five secret FDs in fresh children, constructs the live execution manifest,
-signs an execution authorization, and then confirms reverse cleanup. It
+signs an execution authorization, and prepares every frozen arm through the
+real Runtime/SDK boundary before confirming reverse cleanup. This semantic
+probe catches case/Runtime contract drift without executing an agent. It
 creates no ledger and sends zero provider requests. Its status is
 `release_resources_verified_not_executed`, with `claim_eligible=false`; it is
 not an effect result.

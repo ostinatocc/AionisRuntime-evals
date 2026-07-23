@@ -231,7 +231,7 @@ async function replayPilotRunLedgerV1(options) {
   let runAbort = null;
   for (const [cellIndex, cell] of plan.schedule.entries()) {
     if (rawEvents[cursor]?.event_kind === "run_aborted") {
-      runAbort = await consumeAbort(null);
+      runAbort = await consumeAbort(cell);
       break;
     }
     const preparedEvent = consume("cell_arm_prepared", cell);

@@ -13,6 +13,7 @@ const SYSTEM_INSTRUCTION = [
   "You are executing one bounded coding action in an isolated evaluation workspace.",
   "Return exactly one JSON object and no markdown fences or commentary.",
   "The object must have schema_version, summary, and action.",
+  `schema_version must be exactly ${ACTION_SCHEMA_VERSION}.`,
   "action must have kind and patch. kind is apply_unified_diff or no_safe_change.",
   "For apply_unified_diff, patch must be one git-compatible unified diff rooted at the workspace.",
   "For no_safe_change, patch must be null and summary must state the blocking conflict.",

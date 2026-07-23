@@ -1347,6 +1347,7 @@ async function materializeCaseTemplate(options) {
     verifierImageReference: options.verifierImageReference,
     checks: buildVerifierChecks(definition, options.verifierNodeExecutablePath),
   });
+  const verifierConfigSha256 = ociPrivateVerifierConfigSha256V1(verifierConfig);
   const priorVerifiedState = await materializePriorVerifiedState({
     caseBlueprint: options.caseBlueprint,
     definition,
@@ -1432,11 +1433,12 @@ async function materializeCaseTemplate(options) {
       observed_at: issuedAt,
       expires_at: expiresAt,
       value: {
-        evidence_class: "signed_preseeded_state_verifier",
-        accepted_symbol: definition.acceptedSymbol,
-        rejected_symbol: definition.rejectedSymbol,
-        source_kind: "preseeded_verified_state",
-        status: "verified",
+        kind: "verifier",
+        verifier_id: verifierConfig.verifier_id,
+        config_sha256: verifierConfigSha256,
+        result: "passed",
+        fresh_process: true,
+        after_agent_exit: false,
       },
       evidence_sha256: sourceEventSha256,
     }],
@@ -1458,7 +1460,6 @@ async function materializeCaseTemplate(options) {
     obligations: [obligation],
     render_budget_bytes: 16_384,
   };
-  const verifierConfigSha256 = ociPrivateVerifierConfigSha256V1(verifierConfig);
   const pilotCase = buildPilotCaseV1({
     case_id: options.caseBlueprint.case_id,
     source_fixture: {

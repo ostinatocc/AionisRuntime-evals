@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 
 import { canonicalSha256 } from "../src/canonical.mjs";
 import { startLocalRuntimeV1Fixture } from "../src/local-runtime-v1-fixture.mjs";
@@ -16,6 +19,7 @@ const runtimeRoot = path.resolve(
   process.env.AIONIS_RUNTIME_REPO ?? path.join(root, "..", "AionisRuntime-focused"),
 );
 const lockPath = path.join(root, "config/runtime-v1-lock.json");
+const execFileAsync = promisify(execFile);
 
 function iso(offsetMs = 0) {
   return new Date(Date.now() + offsetMs).toISOString();
@@ -28,7 +32,7 @@ function evidence(label) {
   });
 }
 
-function observationBody(taskFamily) {
+function observationBody(taskFamily, verifierId, verifierConfigSha256) {
   const observedAt = iso(-30_000);
   const expiresAt = iso(45 * 60_000);
   return {
@@ -88,16 +92,90 @@ function observationBody(taskFamily) {
       observed_at: observedAt,
       expires_at: expiresAt,
       value: {
-        kind: "capability",
-        capability_id: "external-workspace-verifier",
-        version: "1.0.0",
-        presence: "present",
+        kind: "verifier",
+        verifier_id: verifierId,
+        config_sha256: verifierConfigSha256,
+        result: "passed",
+        fresh_process: true,
+        after_agent_exit: false,
       },
       evidence_sha256: evidence("collector-observation"),
     }],
     signed_observations: [],
   };
 }
+
+test("freezer verifier observation satisfies the locked Runtime command contract", {
+  timeout: 120_000,
+}, async () => {
+  const lock = JSON.parse(await readFile(lockPath, "utf8"));
+  const [{ stdout: commit }, { stdout: tree }] = await Promise.all([
+    execFileAsync("/usr/bin/git", ["rev-parse", "--verify", "HEAD"], {
+      cwd: runtimeRoot,
+      encoding: "utf8",
+    }),
+    execFileAsync("/usr/bin/git", ["rev-parse", "--verify", "HEAD^{tree}"], {
+      cwd: runtimeRoot,
+      encoding: "utf8",
+    }),
+  ]);
+  assert.equal(commit.trim(), lock.runtime_git_commit_sha);
+  assert.equal(tree.trim(), lock.runtime_git_tree_sha);
+  await execFileAsync("npm", ["run", "-s", "build"], {
+    cwd: runtimeRoot,
+    encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  const commandModule = await import(
+    `${pathToFileURL(path.join(
+      runtimeRoot,
+      "dist",
+      "runtime-v1",
+      "command.js",
+    )).href}?locked=${lock.runtime_git_commit_sha}`
+  );
+  const verifierId = "cross-contract-verifier";
+  const verifierConfigSha256 = evidence("cross-contract-verifier-config");
+  const body = observationBody(
+    "coding",
+    verifierId,
+    verifierConfigSha256,
+  );
+  const binding = {
+    tenant_id: "tenant-cross-contract",
+    scope: "scope-cross-contract",
+    actor_kind: "trusted_host",
+    actor_principal_sha256: evidence("cross-contract-host-principal"),
+  };
+  const command = commandModule.buildRecordObservationsCommandV1(
+    "operation-cross-contract",
+    body,
+    binding,
+  );
+  assert.deepEqual(command.body.collector_observations[0].value, {
+    kind: "verifier",
+    verifier_id: verifierId,
+    config_sha256: verifierConfigSha256,
+    result: "passed",
+    fresh_process: true,
+    after_agent_exit: false,
+  });
+
+  const legacyArbitraryValue = structuredClone(body);
+  legacyArbitraryValue.collector_observations[0].value = {
+    evidence_class: "signed_preseeded_state_verifier",
+    source_kind: "preseeded_verified_state",
+    status: "verified",
+  };
+  assert.throws(
+    () => commandModule.buildRecordObservationsCommandV1(
+      "operation-cross-contract-invalid",
+      legacyArbitraryValue,
+      binding,
+    ),
+    /invalid_union_discriminator/u,
+  );
+});
 
 function obligation() {
   return {
@@ -116,7 +194,12 @@ test("observe-only and treatment share exact observations while treatment closes
   timeout: 360_000,
 }, async () => {
   const verifierKeys = generateKeyPairSync("ed25519");
-  const body = observationBody("coding");
+  const verifierConfigSha256 = evidence("verifier-config");
+  const body = observationBody(
+    "coding",
+    "case-eval-integration-verifier",
+    verifierConfigSha256,
+  );
   const obligations = [obligation()];
   const pilotCase = buildTestPilotCaseV1({
     caseId: "case-eval-integration",
@@ -127,7 +210,7 @@ test("observe-only and treatment share exact observations while treatment closes
     fixtureSha256: evidence("task-fixture"),
     workspaceSha256: evidence("workspace-before"),
     verifierContractSha256: evidence("verifier-contract"),
-    verifierConfigSha256: evidence("verifier-config"),
+    verifierConfigSha256,
     verifierImageDigest: `sha256:${evidence("verifier-image")}`,
   });
   const observeCell = buildPilotCellV1({
