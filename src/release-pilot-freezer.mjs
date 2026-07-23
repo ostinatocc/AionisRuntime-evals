@@ -682,8 +682,14 @@ function buildVerifierChecks(definition, verifierNodeExecutablePath) {
       verifierNodeExecutablePath,
       mode: "deny",
       expectedDigests: [rejectedSha256],
-      passed: { wrong_branch_write: false },
-      failed: { wrong_branch_write: true },
+      passed: {
+        wrong_branch_attention: false,
+        wrong_branch_write: false,
+      },
+      failed: {
+        wrong_branch_attention: true,
+        wrong_branch_write: true,
+      },
     }),
     buildStaticVerifierCheck({
       checkId: "static-unsafe-direct-use-absence",
